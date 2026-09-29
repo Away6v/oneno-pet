@@ -4,7 +4,13 @@ import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { check } from "@tauri-apps/plugin-updater";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import {
+  autoCheckDue,
+  closeUpdate,
+  markAutoChecked,
+  UPDATE_CHECK_TIMEOUT_MS,
+  UPDATE_DOWNLOAD_TIMEOUT_MS,
+} from "./core/updater";
 import { loadConfig, saveConfig, REMINDER_TEXT_MAX } from "./core/config";
 import {
   emitConfigChanged,
@@ -153,8 +159,11 @@ async function main(): Promise<void> {
     await renderSinglePicker();
   });
 
-  // 自动检查更新：静默执行，失败不打扰（仅手动点击「检查更新」时才报错）
-  if (config.autoCheckUpdate) void checkForUpdate(true);
+  // 自动检查更新：完全静默 —— 不占界面、失败不打扰，只有真发现新版本才把卡片切到「可升级」。
+  // 按 AUTO_CHECK_INTERVAL_MS 节流：桌宠常驻，反复开关设置窗口不该反复联网。
+  if (config.autoCheckUpdate && autoCheckDue()) {
+    void checkForUpdate(true).finally(markAutoChecked);
+  }
 }
 
 // ── 小工具 ───────────────────────────────────
@@ -622,8 +631,14 @@ async function initAutostart(): Promise<void> {
 // 分发地址与验签公钥见 src-tauri/tauri.conf.json 的 plugins.updater：客户端只认那一个 endpoint，
 // 安装包由发布方用私钥签名、此处用内置公钥校验，验签不通过不会安装。
 // 界面状态写进 #upd-detail 的 data-state，CSS 据此显隐说明 / 进度条 / 操作按钮。
+// 超时常量、Update 资源释放、自动检查节流统一放在 core/updater.ts。
+//
+// ⚠️ Windows 上没有「装完再自己重启」这一步：插件在启动安装程序后直接 std::process::exit(0)
+// （tauri-plugin-updater 的 install_inner），安装程序（NSIS）负责把应用重新拉起来。
+// 所以 downloadAndInstall() 的 Promise 正常路径不会 resolve，它后面的代码都执行不到，
+// 也**不需要** relaunch —— 这正是本项目不再依赖 tauri-plugin-process 的原因。
 
-/** 更新流程状态 */
+/** 更新流程状态（installing = 下载完成、安装程序正在接管，随后进程会被插件结束） */
 type UpdateState =
   | "idle"
   | "checking"
@@ -635,6 +650,17 @@ type UpdateState =
 
 /** check() 命中的待安装更新；下载安装时复用，避免重复请求 */
 let pendingUpdate: Update | null = null;
+
+/**
+ * 丢弃待安装更新并释放 Rust 侧资源。
+ * Update 继承自 Resource，持有服务端对象与已下载字节，且没有 GC 兜底 ——
+ * 「稍后」「检查失败」这些放弃路径都必须走这里，否则每放弃一次就漏一份。
+ */
+function disposePending(): void {
+  const update = pendingUpdate;
+  pendingUpdate = null;
+  if (update) void closeUpdate(update);
+}
 
 function bindUpdate(): void {
   const autoToggle = document.getElementById(
@@ -670,7 +696,7 @@ function bindUpdate(): void {
       void openReleasePage();
       return;
     }
-    pendingUpdate = null;
+    disposePending();
     setUpdateState("idle", "");
   });
 }
@@ -687,82 +713,148 @@ async function setVersion(): Promise<void> {
   setText("upd-current", `v${version}`);
 }
 
-/** 检查更新；silent 为 true（自动检查）时失败不打扰，仅恢复空闲态 */
+/**
+ * 检查更新。
+ *
+ * silent=true（自动检查）：**完全不碰界面** —— 检查中 / 无新版 / 失败都保持原样，
+ *   只有真发现新版本才把卡片切到 available。这样打开设置页不会先闪一个「检查中…」，
+ *   按钮也不会被平白禁用（弱网下曾会一直禁用到请求超时为止）。
+ * silent=false（手动点「检查更新」）：完整走状态机，失败时给出可读原因。
+ *
+ * 无论走哪条路径，结束前都会释放上一份 Update 句柄，不留悬挂资源。
+ */
 async function checkForUpdate(silent = false): Promise<void> {
-  setUpdateState("checking", "正在检查更新…");
+  // 已有待安装的新版本时不再重复探测（自动检查尤其不该覆盖用户已看到的结果）
+  if (silent && pendingUpdate) return;
+  if (!silent) setUpdateState("checking", "正在检查更新…");
   try {
-    const update = await check();
+    const update = await check({ timeout: UPDATE_CHECK_TIMEOUT_MS });
+    disposePending(); // 先释放上一份结果，再接管新的
     if (!update) {
-      pendingUpdate = null;
-      setUpdateState("upToDate", `已是最新版本 v${await getVersion()}`);
+      if (!silent) setUpdateState("upToDate", `已是最新版本 v${await getVersion()}`);
       return;
     }
     pendingUpdate = update;
     setUpdateState(
       "available",
       `发现新版本 v${update.version}，可一键升级`,
-      (update.body ?? "").trim(),
+      updateNotes(update),
     );
   } catch (e) {
-    pendingUpdate = null;
     console.error("检查更新失败:", e);
-    if (silent) {
-      setUpdateState("idle", "");
-      return;
-    }
+    if (silent) return; // 自动检查失败保持原界面，不打扰
+    disposePending(); // 清掉旧句柄，让「重试」回到「重新检查」的语义
     setUpdateState("error", `检查更新失败：${describeUpdateError(e)}`);
   }
 }
 
-/** 下载并安装待更新，完成后重启应用 */
+/** 更新说明：发布日期 + Release 正文（两者都可能缺，缺则省略） */
+function updateNotes(update: Update): string {
+  const body = (update.body ?? "").trim();
+  const date = formatReleaseDate(update.date);
+  if (body && date) return `${date}\n${body}`;
+  return body || date;
+}
+
+/** RFC 3339 → 「发布于 YYYY-MM-DD」；解析不了返回空串 */
+function formatReleaseDate(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = (n: number): string => String(n).padStart(2, "0");
+  return `发布于 ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** 下载中断后的重试等待（毫秒）：递增退避，给网络留出恢复时间 */
+const RETRY_DELAYS_MS = [1200, 3000, 6000];
+
+/**
+ * 下载并安装待更新。
+ *
+ * Windows 上正常路径的终点是「插件启动 NSIS 安装程序 → 进程被 exit(0)」，
+ * 所以本函数通常走不到最后一行；真走到了，说明安装程序没起来，得如实告诉用户。
+ *
+ * 中国大陆直连 GitHub 附件域名时下载常中途断流（reqwest 把它渲染成
+ * "error decoding response body"，字面意思极具误导性）。这种中断是间歇性的，
+ * 故按 RETRY_DELAYS_MS 递增退避重试，每次从头再下。
+ */
 async function installUpdate(): Promise<void> {
   const update = pendingUpdate;
   if (!update) return;
 
-  // 中国大陆直连 GitHub 附件域名时，下载常在中途断流（reqwest 把它渲染成
-  // "error decoding response body"，字面意思极具误导性）。这种中断是间歇性的，
-  // 所以自动重试一次：失败后从头再下，多数情况第二次能过。
-  const MAX_ATTEMPTS = 2;
+  const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
   let lastError: unknown = null;
+  let downloadedOnce = false; // 是否曾完整下载过（用于区分「下载失败」与「安装程序没起来」）
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const suffix = attempt > 1 ? `（第 ${attempt} 次尝试）` : "";
+    const suffix = attempt > 1 ? `（第 ${attempt}/${MAX_ATTEMPTS} 次尝试）` : "";
     let total = 0;
     let received = 0;
     let downloaded = false; // 收到 Finished 事件即视为下载完成
     setUpdateState("downloading", `正在下载 v${update.version}…${suffix}`);
     try {
-      await update.downloadAndInstall((event) => {
-        if (event.event === "Started") {
-          total = event.data.contentLength ?? 0;
-        } else if (event.event === "Progress") {
-          received += event.data.chunkLength;
-          if (total > 0) {
-            const pct = Math.round((received / total) * 100);
-            setProgress(pct);
-            setText("upd-msg", `正在下载 v${update.version}… ${pct}%${suffix}`);
+      await update.downloadAndInstall(
+        (event) => {
+          if (event.event === "Started") {
+            total = event.data.contentLength ?? 0;
+          } else if (event.event === "Progress") {
+            received += event.data.chunkLength;
+            setText("upd-msg", downloadText(update.version, received, total, suffix));
+            if (total > 0) setProgress(Math.round((received / total) * 100));
+          } else {
+            // Finished：下载完成，接下来交给安装程序（进程随即被插件结束）
+            downloaded = true;
+            downloadedOnce = true;
+            setProgress(100);
+            setUpdateState("installing", `v${update.version} 下载完成，正在启动安装程序…`);
           }
-        } else {
-          downloaded = true;
-          setProgress(100); // Finished
-        }
-      });
-      setUpdateState("installing", "正在安装，软件即将重启…");
-      await relaunch();
-      return;
+        },
+        { timeout: UPDATE_DOWNLOAD_TIMEOUT_MS },
+      );
+      // 能走到这里说明插件没有结束进程 —— 安装程序没起来，重下整个包也没用
+      break;
     } catch (e) {
       lastError = e;
-      console.error(`安装更新失败（第 ${attempt}/${MAX_ATTEMPTS} 次）:`, e);
-      // 下载已完成才失败 → 问题出在安装阶段，重下整个包也没用，直接放弃
+      console.error(`更新失败（第 ${attempt}/${MAX_ATTEMPTS} 次）:`, e);
+      // 下载已完成才失败 → 问题在安装阶段，重下无益，直接放弃
       if (downloaded) break;
       if (attempt < MAX_ATTEMPTS) {
-        setUpdateState("downloading", "下载中断，正在重试…");
-        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        const wait = RETRY_DELAYS_MS[attempt - 1] ?? 3000;
+        setUpdateState("downloading", `下载中断，${Math.round(wait / 1000)} 秒后重试…`);
+        await new Promise((resolve) => window.setTimeout(resolve, wait));
       }
     }
   }
 
-  setUpdateState("error", `更新失败：${describeUpdateError(lastError)}`);
+  setUpdateState(
+    "error",
+    downloadedOnce
+      ? "安装包已下载完成，但安装程序没能启动。请点「手动下载」到发布页安装，或重启软件后再试"
+      : `更新失败：${describeUpdateError(lastError)}`,
+  );
+}
+
+/**
+ * 下载中的文案：服务端给了总长度就报百分比，没给就报已收到多少 ——
+ * 否则进度条恒为 0、文案也不动，用户会以为卡死了。
+ */
+function downloadText(
+  version: string,
+  received: number,
+  total: number,
+  suffix: string,
+): string {
+  if (total > 0) {
+    return `正在下载 v${version}… ${Math.round((received / total) * 100)}%${suffix}`;
+  }
+  return `正在下载 v${version}… 已收到 ${formatBytes(received)}${suffix}`;
+}
+
+/** 字节数 → 人类可读（下载进度兜底文案用） */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 /** 写入界面状态：同步 data-state、状态文案与更新说明，并按状态禁用 / 改写各按钮 */
@@ -799,7 +891,8 @@ function setUpdateState(state: UpdateState, msg: string, notes = ""): void {
     laterBtn.disabled = busy;
     laterBtn.textContent = state === "error" ? "手动下载" : "稍后";
   }
-  if (state !== "downloading") setProgress(0); // 离开下载态即归零，避免残留满条
+  // 离开「下载 / 安装」两态才归零：安装态紧接下载完成，此时归零会让进度条突然空掉
+  if (state !== "downloading" && state !== "installing") setProgress(0);
 }
 
 /** 下载进度条宽度（0 ~ 100） */
@@ -819,20 +912,26 @@ async function openReleasePage(): Promise<void> {
 }
 
 /**
- * 把更新失败原因转成可读文案；网络类失败额外提示可走手动下载。
+ * 把更新失败原因转成可读文案。
  *
  * ⚠️ 必须显式覆盖 `error decoding response body`：reqwest 把「响应体流中断」和
  * 「JSON 解析失败」**都**渲染成这句话，字面意思（"解码响应体出错"）会让人以为是
  * 数据格式问题，实际几乎总是**下载中途断流**（实测：中国大陆直连 GitHub 附件域名）。
+ *
+ * 验签失败放在网络类之前判断：它的原始文案里也常混着 request / decoding 之类的词，
+ * 而两者的处置方式完全相反（一个值得重试，一个绝不该再装）。
  */
 function describeUpdateError(e: unknown): string {
   const raw = e instanceof Error ? e.message : String(e);
+  if (/signature|verif|invalid public key|untrusted/i.test(raw)) {
+    return "安装包验签未通过（可能下载被篡改，或发布方签名密钥与客户端不匹配），已中止安装。请到发布页手动下载";
+  }
   if (
     /timeout|timed out|network|connect|dns|request|error sending|error decoding|decoding response|incomplete|unexpected eof|connection reset|connection closed|broken pipe/i.test(
       raw,
     )
   ) {
-    return "网络中断，下载没完成。可点「手动下载」到发布页，或连上代理后重试";
+    return "网络中断或超时，下载没完成。可点「手动下载」到发布页，或连上代理后重试";
   }
   return raw;
 }

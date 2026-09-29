@@ -28,6 +28,7 @@ import {
 } from "./core/bus";
 import { refreshCustomAssets, setHiddenBuiltins } from "./core/assetManager";
 import { createReminderScheduler, type ReminderScheduler } from "./core/reminders";
+import { autoCheckDue, markAutoChecked, probeUpdate } from "./core/updater";
 import type { AppConfig, FanSide, SpeakPayload } from "./types";
 
 const win = getCurrentWindow();
@@ -213,6 +214,12 @@ async function main(): Promise<void> {
 
   // 闲置碎碎念：空闲时随机间隔弹一句（气泡由独立 speech 窗口渲染）
   startIdleChatter(() => dragging);
+
+  // 启动后台静默检查更新（延迟一会儿，避开启动瞬间的窗口 / 素材加载）
+  window.setTimeout(
+    () => void checkUpdateOnStartup(config.autoCheckUpdate),
+    UPDATE_PROMPT_DELAY_MS,
+  );
 }
 
 async function applyWindowSize(size: number): Promise<void> {
@@ -618,6 +625,28 @@ function setupCountdownCoordinator(): void {
   void onCountdownToggle(() => void toggleCountdown());
   // 菜单每次绽放时询问一次当前状态：避免任何时序导致的菜单高亮与实际不符
   void onCountdownQuery(() => broadcastCountdownState());
+}
+
+// ── 启动时静默检查更新 ──
+// 桌宠是常驻后台的，用户可能很久不打开设置窗口 —— 只在设置页里查，新版本可能几周都提示不到。
+// 这里在启动后静默探一次，发现新版本用气泡说一句：气泡自动收起，不阻塞后续提醒，
+// 也不去动设置页那套界面状态（那是手动 / 自动检查各自的事）。
+const UPDATE_PROMPT_DELAY_MS = 20_000;
+
+async function checkUpdateOnStartup(autoCheckUpdate: boolean): Promise<void> {
+  if (!autoCheckUpdate || !autoCheckDue()) return;
+  markAutoChecked(); // 先记时刻：探测失败也不该在几秒后重来
+  try {
+    const info = await probeUpdate();
+    if (!info) return;
+    await showSpeech({
+      text: `发现新版本 v${info.version}，到「设置 → 软件」里可以一键升级～`,
+      durationMs: 9000,
+    });
+  } catch (e) {
+    // 静默检查失败不打扰用户，只在控制台留痕
+    console.error("启动时检查更新失败:", e);
+  }
 }
 
 // 闲置碎碎念预设短句（暖棕友好风）

@@ -185,10 +185,12 @@ console.log(`
 
   git add -A && git commit -m "chore: 版本号 ${next}"
   git push ${remote} main
-  git tag v${next}
+  git tag -a v${next} -m "oneno-pet v${next}"
   git push ${remote} v${next}
 
 推完 tag 后 CI 会自动构建（约 7 分钟）。
 等 CI 变绿 → 到 Releases 页面确认 Assets 有 3 个产物 → 点 Publish release。
 ⚠ tag 名必须正好是 v${next}，与版本号对不上 CI 会直接失败。
+ℹ 用附注标签（-a -m）而不是轻量标签：Release 页面能显示打 tag 的人与时间。
+ℹ 发版说明取自 CHANGELOG.md 的 [${next}] 小节，发版前记得先写好。
 `);

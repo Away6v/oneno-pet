@@ -1,6 +1,6 @@
 [package]
 name = "oneno-pet"
-version = "0.1.0"
+version = "0.1.1"
 description = "oneno 桌宠 — 一二 / 布布 桌面宠物"
 authors = ["oneno"]
 edition = "2021"
@@ -23,9 +23,8 @@ tauri-plugin-dialog = "2"
 # 并把启动参数转给已在跑的实例（由它把桌宠显示出来）
 tauri-plugin-single-instance = "2"
 # updater：检查更新 + 下载 + minisign 验签 + 静默安装（Windows 走 NSIS）
-# process：更新安装完成后重启应用（relaunch）
+# 不需要 process 插件：Windows 上插件启动安装程序后即 exit(0)，由 NSIS 负责重启应用
 tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

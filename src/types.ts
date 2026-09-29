@@ -169,8 +169,14 @@ export const SLOGAN = "人生不如意，十有八九，常想一二";
 
 // 版本号不在此硬编码：以 src-tauri/tauri.conf.json 的 version 为唯一来源，前端用 getVersion() 读取。
 
-/** 更新分发地址（公开仓库的 Release 固定链接；与 tauri.conf.json 的 updater.endpoints 指向同一仓库） */
-export const RELEASE_PAGE_URL = "https://github.com/Away6v/oneno-pet/releases/latest";
+/**
+ * 手动下载兜底页（更新失败时用系统浏览器打开）。
+ *
+ * 指向 Releases **列表页**而不是 `releases/latest`：后者在「还没有已发布版本」
+ * 或「latest 刚被撤回成草稿」时会 404，而列表页永远打得开。
+ * 与 tauri.conf.json 的 updater.endpoints 指向同一仓库。
+ */
+export const RELEASE_PAGE_URL = "https://github.com/Away6v/oneno-pet/releases";
 
 /** 作者信息（关于页展示用） */
 export const AUTHORS = {

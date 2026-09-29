@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
-  "description": "桌宠主窗口：拖动自身、按宠物尺寸调整窗口、启动时恢复/夹取位置，并摆布 menu / speech 两个附属窗口。",
+  "description": "桌宠主窗口：拖动自身、按宠物尺寸调整窗口、启动时恢复/夹取位置，摆布 menu / speech 两个附属窗口，并在启动后静默检查一次更新。",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -11,6 +11,7 @@
     "core:window:allow-center",
     "core:window:allow-show",
     "core:window:allow-hide",
-    "core:window:allow-set-focus"
+    "core:window:allow-set-focus",
+    "updater:default"
   ]
 }

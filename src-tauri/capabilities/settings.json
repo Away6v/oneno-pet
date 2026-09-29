@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "settings-capability",
-  "description": "设置窗口：自绘标题栏的最小化 / 最大化 / 还原 / 关闭（关闭＝隐藏），以及选择本地图片素材。",
+  "description": "设置窗口：自绘标题栏的最小化 / 最大化 / 还原 / 关闭（关闭＝隐藏）、选择本地图片素材，以及检查并安装更新。",
   "windows": ["settings"],
   "permissions": [
     "core:default",
@@ -13,7 +13,6 @@
     "core:window:allow-maximize",
     "core:window:allow-unmaximize",
     "dialog:allow-open",
-    "updater:default",
-    "process:allow-restart"
+    "updater:default"
   ]
 }

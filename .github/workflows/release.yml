@@ -10,6 +10,12 @@ on:
 permissions:
   contents: write
 
+# 同一个 tag 重复推送（或快速连推多个 tag）时串行化，避免两次构建并行上传、互相覆盖产物。
+# 刻意不开 cancel-in-progress：中断一次正在上传产物的构建会留下半个 Release。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
@@ -49,6 +55,21 @@ jobs:
           fi
           echo "tag 与版本号一致：v$VER"
 
+      # 发版说明取自 CHANGELOG.md 的对应小节：客户端「发现新版本」界面显示的就是它，
+      # 写死一句话会让用户永远看不到这一版改了什么。抽不到时脚本给兜底文案，不拦发版。
+      # 多行值用 heredoc 写进 $GITHUB_OUTPUT，才能原样带换行传给 tauri-action。
+      - name: 取发版说明
+        id: notes
+        shell: bash
+        run: |
+          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          {
+            echo "body<<CHANGELOG_EOF"
+            node scripts/changelog-section.mjs "$VER"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "已取到 [$VER] 的发版说明"
+
       - name: 构建并发布
         uses: tauri-apps/tauri-action@v0
         env:
@@ -60,10 +81,13 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "oneno-pet ${{ github.ref_name }}"
-          releaseBody: "安装包见下方 Assets。已安装旧版本的用户可直接在「设置 → 软件」中一键升级。"
+          releaseBody: ${{ steps.notes.outputs.body }}
           # 先出草稿：确认构建无误后手动点发布，latest.json 才会被客户端读到
           # （releases/latest 只指向已发布且非预发布的 Release）
           releaseDraft: true
-          prerelease: false
+          # 带 `-` 的 tag（如 v0.2.0-beta.1）必须标成预发布：
+          # releases/latest 只认「非草稿 + 非预发布」，写死 false 会让测试版直接变成
+          # latest 推给所有用户 —— 这正是 set-version 允许 -beta 后缀时必须配套的一步。
+          prerelease: ${{ contains(github.ref_name, '-') }}
           # 项目只出 NSIS 包，明确让 updater 清单选它
           updaterJsonPreferNsis: true

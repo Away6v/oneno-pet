@@ -1,0 +1,41 @@
+name: ci
+
+# 日常校验：平时 push / PR 就跑，别等推了 tag 才发现类型错误或打包失败 ——
+# 那时候 tag 已经推出去、构建已经占着 runner，返工成本比现在高得多。
+#
+# 只查前端（tsc --noEmit + vite build）。Rust 侧不在这里查：Linux runner 上要先装
+# webkit2gtk 等一大票系统依赖，又慢又脆；真正的 Rust 构建由 release.yml 在
+# windows-latest 上跑，那才是目标平台。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      # npm run build = tsc --noEmit && vite build，一步覆盖类型检查与打包
+      - name: 类型检查 + 构建前端
+        run: npm run build
+
+      # 版本号漂移在这拦下来，比在 release.yml 里失败更早、更好修
+      - name: 校验版本号一致
+        run: npm run sync-version -- --check

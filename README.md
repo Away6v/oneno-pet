@@ -17,15 +17,17 @@
 - 设置窗口：总览 / 宠物设置 / 素材库 / 软件 / 提醒 / 关于
 - 系统托盘：显示隐藏桌宠、打开设置、退出
 - 开机自启（Windows 注册表 Run 项）
-- 检查更新：设置页可查看当前版本并一键升级（自动下载 → 验签 → 静默安装 → 重启），走公开仓库的 GitHub Releases，无需自建服务器
+- 检查更新：设置页可查看当前版本并一键升级（自动下载 → 验签 → 静默安装，装完由安装程序拉起），走公开仓库的 GitHub Releases，无需自建服务器
+- 启动后台静默检查新版本，发现新版用气泡提示（可在设置里关掉自动检查）
 - 配置本地持久化，除检查更新外无任何网络请求
 
 ## 技术栈
 
 - **Tauri v2**（Rust 后端 + 系统 WebView2，产物体积小、内存占用低）
 - **Vite + TypeScript + 原生 DOM**（不引入前端框架）
-- 极简依赖：前端仅 `@tauri-apps/api`、`@tauri-apps/plugin-dialog`、`@tauri-apps/plugin-updater`、`@tauri-apps/plugin-process`；Rust 仅 `tauri`（启用 `protocol-asset`、`tray-icon`）、`tauri-plugin-single-instance`、`tauri-plugin-dialog`、`tauri-plugin-updater`、`tauri-plugin-process`、`serde`、`serde_json`
+- 极简依赖：前端仅 `@tauri-apps/api`、`@tauri-apps/plugin-dialog`、`@tauri-apps/plugin-updater`；Rust 仅 `tauri`（启用 `protocol-asset`、`tray-icon`）、`tauri-plugin-single-instance`、`tauri-plugin-dialog`、`tauri-plugin-updater`、`serde`、`serde_json`
 - 文件读写走 Rust 自定义命令（`std::fs`），未引入额外文件系统 / 存储插件
+- 没有 process 插件：Windows 上更新安装程序启动后由 `tauri-plugin-updater` 直接结束进程，安装程序（NSIS）负责把应用拉起来，前端无需 `relaunch()`
 
 ## 环境要求
 
@@ -43,15 +45,17 @@ oneno-pet/
 ├── speech.html           # 气泡会话框窗口
 ├── countdown.html        # 下班倒计时面板窗口
 ├── settings.html         # 设置窗口
+├── CHANGELOG.md          # 更新日志；发版说明由 CI 从这里抽取对应小节
 ├── public/assets/        # 内置素材（按角色分子目录）与图标源
-├── .github/workflows/    # release.yml：推送 v* 标签触发构建 + 签名 + 建 Release 草稿
+├── .github/workflows/    # ci.yml：日常类型检查 + 构建；release.yml：推送 v* 标签触发构建 + 签名 + 建 Release 草稿
 ├── docs/                 # 说明文档（功能 / 架构 / 交互与资源 / 更新与发版）
 ├── scripts/              # 版本号与发布辅助脚本（Node ESM）
 │   ├── version-files.mjs # 版本号定位 / 读写 / 一致性校验
 │   ├── set-version.mjs   # 一条命令改完四处版本号
 │   ├── sync-version.mjs  # 把 tauri.conf.json 的版本反写到其余文件
 │   ├── build-desktop.mjs # 本地打包（自动注入签名私钥）
-│   └── wait-release.mjs  # 盯 tag 触发的 CI 构建
+│   ├── wait-release.mjs  # 盯 tag 触发的 CI 构建
+│   └── changelog-section.mjs # 从 CHANGELOG.md 抽指定版本的发版说明
 ├── src/
 │   ├── main.ts           # 主窗口入口（渲染 / 拖拽 / 位置 / 气泡与倒计时定位 / 闲置碎碎念）
 │   ├── menu.ts           # 菜单窗口入口（放射扇环）
@@ -59,7 +63,7 @@ oneno-pet/
 │   ├── countdown.ts      # 倒计时面板入口（每秒刷新 / 到点态）
 │   ├── settings.ts       # 设置窗口入口
 │   ├── types.ts          # 公共类型与常量
-│   ├── core/             # characters / config / bus / assetManager / reminders
+│   ├── core/             # characters / config / bus / assetManager / reminders / updater
 │   ├── pet/              # PetRenderer / AnimationScheduler / DragController
 │   └── styles/           # pet.css / menu.css / speech.css / countdown.css / settings.css
 └── src-tauri/            # Rust 后端、Tauri 配置与能力声明
@@ -118,19 +122,25 @@ NSIS 安装包位于 `src-tauri/target/release/bundle/nsis/`，同时会生成 `
 npm run set-version -- 0.1.1
 #    也可以不带参数，交互式输入：npm run set-version
 
-# 2. 提交（tag 必须指向含版本号改动的 commit，所以要先提交再打 tag）
+# 2. 在 CHANGELOG.md 里补上 [0.1.1] 小节
+#    CI 会把它填进 Release 说明，客户端「发现新版本」界面显示的就是这段
+
+# 3. 提交（tag 必须指向含版本号改动的 commit，所以要先提交再打 tag）
 git add -A && git commit -m "chore: 版本号 0.1.1"
 git push oneno-pet main
 
-# 3. 打标签并推送，触发 CI
-git tag v0.1.1
+# 4. 打附注标签并推送，触发 CI
+git tag -a v0.1.1 -m "oneno-pet v0.1.1"
 git push oneno-pet v0.1.1
 
-# 4. 盯 CI 跑完（约 7~8 分钟），跑完会告诉你下一步该干嘛
+# 5. 盯 CI 跑完（约 7~8 分钟），跑完会告诉你下一步该干嘛
 npm run wait-release -- v0.1.1
 ```
 
 > 本仓库的 remote 名是 **`oneno-pet`**，不是 `origin`。
+> 平时 push / 开 PR 会跑 `.github/workflows/ci.yml`（类型检查 + 构建 + 版本号一致性），
+> 不用等到发版才发现编译不过。
+> 带 `-` 的 tag（如 `v0.2.0-beta.1`）会被自动标成**预发布**，不会抢占 `releases/latest`。
 
 流水线会构建安装包、用私钥签名、生成 `latest.json`，并创建一个 **Release 草稿**。
 到 Releases 页面确认无误后**手动点 Publish release** —— 客户端读的 `releases/latest/` 只指向已发布的正式版。
@@ -191,4 +201,11 @@ npm run wait-release -- v0.1.1
 
 ## 许可与说明
 
-个人 / 非商用项目，仅供学习与自用。除「检查更新」访问公开仓库的 GitHub Releases 外，不发起任何网络请求。内置人物素材版权归原作者（黄小B）所有。
+个人 / 非商用项目，仅供学习与自用。除「检查更新」访问公开仓库的 GitHub Releases 外，不发起任何网络请求。
+
+内置人物素材（「一二布布」）版权归原作者 **黄小B** 所有，取自以下公开整理页：
+
+- 知乎专栏 · 全网最全【一二布布】动态表情包：https://zhuanlan.zhihu.com/p/557914631
+- 花瓣画板：https://huaban.com/boards/62437516
+
+如需分发或商用，请替换为自绘或已获授权的素材。详见 [`docs/03-交互与资源规范.md`](docs/03-交互与资源规范.md) 第 13 节。

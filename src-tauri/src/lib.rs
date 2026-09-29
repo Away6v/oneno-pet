@@ -439,10 +439,10 @@ pub fn run() {
             focus_existing_pet(app);
         }))
         .plugin(tauri_plugin_dialog::init())
-        // 应用内更新：endpoints / pubkey 见 tauri.conf.json 的 plugins.updater
+        // 应用内更新：endpoints / pubkey 见 tauri.conf.json 的 plugins.updater。
+        // 不注册 process 插件：Windows 上插件启动安装程序后即 exit(0)，由 NSIS 重启应用，
+        // 前端没有（也不需要）relaunch 可调。
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // 更新安装完成后由前端调用 relaunch() 重启
-        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             build_tray(app.handle())?;
             Ok(())
