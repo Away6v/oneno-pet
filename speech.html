@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>speech</title>
+    <link rel="stylesheet" href="/src/styles/speech.css" />
+  </head>
+  <body>
+    <!-- 独立气泡窗口：透明、点击穿透、置顶不聚焦；窗口默认隐藏，
+         每次说话由主窗口 setPosition 后立刻 show，位置在 show 那一刻才提交 -->
+    <div id="stage" class="stage is-hidden">
+      <div id="bubble" class="bubble b--remind" role="status" aria-live="polite">
+        <div class="row">
+          <span id="bubble-ico" class="ico" aria-hidden="true"></span>
+          <span id="bubble-txt" class="txt"></span>
+        </div>
+        <!-- 手动关闭模式才显示：右下角确认按钮（文案按提醒语义由 JS 填充） -->
+        <div class="foot">
+          <button id="bubble-ok" class="ok" type="button"></button>
+        </div>
+        <span class="tail"></span>
+      </div>
+    </div>
+    <script type="module" src="/src/speech.ts"></script>
+  </body>
+</html>

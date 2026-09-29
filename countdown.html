@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>countdown</title>
+    <link rel="stylesheet" href="/src/styles/countdown.css" />
+  </head>
+  <body>
+    <!-- 独立的下班倒计时面板：透明、点击穿透、置顶不聚焦，与气泡会话框（speech 窗口）互相独立。
+         窗口默认隐藏，每次打开由主窗口 setPosition 后立刻 show（位置在 show 那一刻才提交），
+         随后主窗口广播 CountdownState 驱动本窗口启停计时。
+         面板贴在人物下方（不遮挡人物），横向中轴始终与人物中轴对齐；无尖角。 -->
+    <div id="cd" class="cd is-hidden">
+      <div class="cd-card">
+        <span id="cd-label" class="cd-label">距离下班</span>
+        <span id="cd-time" class="cd-time">--:--:--</span>
+      </div>
+    </div>
+    <script type="module" src="/src/countdown.ts"></script>
+  </body>
+</html>

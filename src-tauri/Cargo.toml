@@ -1,0 +1,39 @@
+[package]
+name = "oneno-pet"
+version = "0.1.0"
+description = "oneno 桌宠 — 一二 / 布布 桌面宠物"
+authors = ["oneno"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# 主二进制依赖此库；lib 名唯一，避免与包名冲突
+[lib]
+name = "oneno_pet_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# protocol-asset：允许 WebView 通过 asset: 协议加载磁盘上的自定义素材
+# tray-icon：系统托盘图标（隐藏桌宠后仍可显示 / 打开设置 / 退出）
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+tauri-plugin-dialog = "2"
+# single-instance：保证桌宠唯一。重复双击程序时第二个进程直接退出，
+# 并把启动参数转给已在跑的实例（由它把桌宠显示出来）
+tauri-plugin-single-instance = "2"
+# updater：检查更新 + 下载 + minisign 验签 + 静默安装（Windows 走 NSIS）
+# process：更新安装完成后重启应用（relaunch）
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 发布构建：体积/性能优化
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+incremental = false

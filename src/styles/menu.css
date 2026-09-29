@@ -1,0 +1,270 @@
+:root {
+  --bg: #fffdf9;
+  --text: #4a3b33;
+  --tint: #fbf3ec;
+  --line: #e7e0d6;
+  --accent: #dda68d;
+  --accent-dark: #8a5a3b;
+  --danger: #c0553b;
+
+  /* 暖色分层投影：统一用墨棕低透明度，避免灰调“通用卡片阴影” */
+  --shadow-md: 0 3px 8px rgba(74, 59, 51, 0.14), 0 1px 2px rgba(74, 59, 51, 0.1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 绽放：先快后缓、末端带一点过冲回弹 —— 比线性缓动更「弹」 */
+  --bloom: cubic-bezier(0.16, 1.24, 0.32, 1);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  color: var(--text);
+}
+
+/* 整个窗口即菜单画布，点击空白处（backdrop）关闭 */
+.radial {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+/* ── SVG 扇面层（铺满窗口；空白处点击穿透到 .radial 触发关闭）── */
+.radial-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── 中心头像 hub（主角：洁净白圆 + 柔和悬浮投影）── */
+.hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  /* 起始：小、略低、透明 —— 绽放时从下方「弹起」到位 */
+  transform: translate(-50%, calc(-50% + 9px)) scale(0.5);
+  opacity: 0;
+  border: none;
+  background: var(--bg);
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 3px 10px rgba(74, 59, 51, 0.2),
+    0 1px 3px rgba(74, 59, 51, 0.12);
+  transition: transform 0.5s var(--spring), opacity 0.22s ease,
+    box-shadow 0.2s ease;
+  z-index: 3;
+}
+.radial.is-open .hub {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+.radial.is-open .hub:hover {
+  transform: translate(-50%, -50%) scale(1.06);
+  box-shadow: 0 6px 15px rgba(74, 59, 51, 0.24),
+    0 2px 6px rgba(74, 59, 51, 0.14);
+}
+.hub-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #fff;
+  display: block;
+  box-shadow: inset 0 0 0 1px rgba(74, 59, 51, 0.06);
+  -webkit-user-drag: none;
+}
+
+/* ── 扇面节点（一级 / 二级通用）── */
+/* transform-origin 由内联 style 指定（一级=窗口中心，二级=父项质心）；transform-box 令其按 viewBox 坐标解析。
+   --tx/--ty 是「沿绽放方向回缩」的起点偏移：扇面从靠近原点处弹射到最终位置，比单纯缩放更有冲劲。 */
+.node {
+  color: var(--text);
+  opacity: 0;
+  transform: translate(var(--tx, 0px), var(--ty, 0px)) scale(0.6);
+  transform-box: view-box;
+  transition: transform 0.46s var(--bloom), opacity 0.26s ease;
+  transition-delay: var(--delay, 0s);
+}
+.node.is-shown {
+  opacity: 1;
+  transform: translate(0px, 0px) scale(1);
+}
+.node.is-dim {
+  opacity: 0.26 !important;
+}
+
+/* 扇面本体：洁净暖白 + 极细暖描边 + 柔和投影；仅扇面可点击 */
+.node-sector {
+  fill: var(--bg);
+  stroke: rgba(74, 59, 51, 0.16);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  pointer-events: auto;
+  cursor: pointer;
+  filter: drop-shadow(0 2px 4px rgba(74, 59, 51, 0.16));
+  /* transform-origin 由内联 style 指定（与所在节点同一绽放原点）：
+     hover 外扩时朝「远离圆心」的方向推出去，和绽放方向一致 */
+  transform-box: view-box;
+  transition: fill 0.18s ease, stroke 0.18s ease, transform 0.22s ease;
+}
+.node-glyph {
+  pointer-events: none;
+}
+
+/* 标签的透明命中层（尺寸由 menu.ts 的 syncLabelHits 实测文字盒后填上）：
+   显隐跟着 .node:hover，所以鼠标从扇面滑过来时它已经就位，能把悬浮一路接住。
+   ⚠️ 必须用 fill:transparent + pointer-events:auto（= visiblePainted），不能用 fill:none + all ——
+   `all` 只按几何命中、**完全忽略 visibility**，隐藏时会照样拦住鼠标，窗口空白处就多出几块隐形可点区。 */
+.node-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: auto;
+  cursor: pointer;
+  visibility: hidden;
+  /* 收起时与标签同步延迟：标签淡出那 0.14s 内鼠标仍能停留，不会刚滑过去就断 */
+  transition: visibility 0s linear 0.14s;
+}
+.node:hover .node-hit {
+  visibility: visible;
+  transition: visibility 0s linear 0s; /* 浮现不延迟：鼠标刚进扇面就要能接住 */
+}
+/* 变暗 / 已展开的父项本就不显示标签，命中层一并撤掉，免得拦住后面的二级扇面 */
+.node.is-dim .node-hit,
+.node--parent.is-active .node-hit {
+  visibility: hidden !important;
+}
+/* 图标动画载体（<g>，transform-origin 内联为图标中心）：
+   扇面弹出后图标再「由小转正」，给绽放补一层细节层次 */
+.node-glyph {
+  transform-box: view-box;
+  opacity: 0;
+  transform: scale(0.35) rotate(-30deg);
+  transition: transform 0.44s var(--spring), opacity 0.3s ease;
+  transition-delay: calc(var(--delay, 0s) + 0.06s);
+}
+.node.is-shown .node-glyph {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+.node-glyph svg {
+  overflow: visible;
+  pointer-events: none;
+}
+
+.node:hover .node-sector {
+  fill: var(--tint);
+  transform: scale(1.06); /* 悬浮时朝外推一点，手感更「活」 */
+}
+.node--danger {
+  color: var(--danger);
+}
+.node--danger:hover .node-sector {
+  fill: #f8e8e3;
+}
+/* 展开时高亮当前父项：主强调色实心扇面 */
+.node--parent.is-active {
+  color: #fff;
+}
+.node--parent.is-active .node-sector {
+  fill: var(--accent);
+  stroke: var(--accent-dark);
+  filter: drop-shadow(0 5px 12px rgba(138, 90, 59, 0.32));
+}
+/* 展开的父项不再显示悬浮标签，避免压住其二级扇面 */
+.node--parent.is-active .node-label {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* 标签：平时隐藏，悬浮时浮现在外弧之外；白色描边形成柔光衬底（桌面上背景不可控，衬底必须有）。
+   pointer-events 保持 auto 且用 visibility 做显隐 —— 两个作用：
+   ① 鼠标从扇面移到标签上时 :hover 不丢，标签不会「刚露头就缩回去」；
+   ② 点标签等于点这一项（click 委托靠 closest('.node') 反查）。
+   注意不能用 opacity:0 来藏：透明元素照样吃鼠标事件，会在窗口空白处留下几块隐形可点区。 */
+.node-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  fill: var(--text);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+  transform-box: view-box;
+  /* 起点：沿径向朝圆心缩进一点（--lx/--ly 由内联 style 按该项角度给出） */
+  transform: translate(var(--lx, 0px), var(--ly, 0px));
+  opacity: 0;
+  visibility: hidden;
+  cursor: pointer;
+  /* 收起：立即淡出，淡完再真正隐藏（否则中途还能被点中） */
+  transition: opacity 0.14s ease, visibility 0s linear 0.14s,
+    transform 0.2s ease, fill 0.18s ease;
+}
+.node:hover .node-label {
+  opacity: 1;
+  visibility: visible;
+  fill: var(--accent-dark);
+  transform: translate(0px, 0px);
+  /* 浮现统一延后 80ms：快速划过整排菜单时不会一路乱闪，只在真正停下的那项上亮起 */
+  transition: opacity 0.14s ease 0.08s, visibility 0s linear 0.08s,
+    transform 0.24s var(--spring) 0.08s, fill 0.18s ease;
+}
+.node--danger .node-label,
+.node--danger:hover .node-label {
+  fill: var(--danger);
+}
+
+/* 已开启的开关型菜单项（如下班倒计时）：主强调色实心扇面 + 白色图标与标签 */
+.node--on {
+  color: #fff;
+}
+.node--on .node-sector {
+  fill: var(--accent);
+  stroke: var(--accent-dark);
+  filter: drop-shadow(0 5px 12px rgba(138, 90, 59, 0.32));
+}
+.node--on:hover .node-sector {
+  fill: var(--accent);
+}
+/* ⚠️ 不要再给「已开启」项写 `.node--on:hover .node-label { fill: #fff }` ——
+   标签浮在扇面**之外**，不在那块强调色实心底上，白字配白描边在浅色桌面上等于看不见。
+   让它走通用的 --accent-dark 即可。 */
+
+/* ── 归零态（窗口隐藏期间）── */
+/* hide 后立刻挂上：瞬时清掉所有过渡与延迟，让状态归零不留动画残影，
+   下次 show 的第一帧必然是干净的全透明，不会再闪出上一轮的菜单 */
+.radial.is-instant .hub,
+.radial.is-instant .node,
+.radial.is-instant .node-glyph {
+  transition-duration: 0.001s !important;
+  transition-delay: 0s !important;
+}
+
+/* 降低动态：仅保留即时显隐 */
+@media (prefers-reduced-motion: reduce) {
+  .hub,
+  .node,
+  .node-sector,
+  .node-label,
+  .node-glyph {
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
+}

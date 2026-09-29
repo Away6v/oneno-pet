@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>设置 · oneno-pet</title>
+    <link rel="stylesheet" href="/src/styles/settings.css" />
+  </head>
+  <body>
+    <div class="app">
+      <!-- 顶部标题栏：品牌 + 窗口控制 -->
+      <header class="titlebar" data-tauri-drag-region>
+        <div class="brand">
+          <span class="brand-logo"><img id="brand-avatar" alt="" draggable="false" /></span>
+          <span class="brand-text">
+            <span class="brand-name">oneno 桌宠</span>
+          </span>
+        </div>
+        <div class="win-controls">
+          <button class="win-btn" id="win-min" type="button" title="最小化" aria-label="最小化">
+            <svg viewBox="0 0 24 24"><path d="M6 12h12" /></svg>
+          </button>
+          <button class="win-btn" id="win-max" type="button" title="最大化" aria-label="最大化">
+            <svg class="ico-max" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.6" /></svg>
+            <svg class="ico-restore" viewBox="0 0 24 24"><rect x="7.5" y="7.5" width="11" height="11" rx="1.5" /><path d="M5.5 15.5V6.2A1.7 1.7 0 0 1 7.2 4.5h9.3" /></svg>
+          </button>
+          <button class="win-btn win-btn--close" id="win-close" type="button" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="body">
+        <!-- 左侧导航 -->
+        <aside class="sidebar">
+          <nav class="nav" id="nav">
+          <button class="nav-item is-active" data-panel="overview" type="button">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5" /></svg></span>
+            <span class="nav-label"><span class="nav-title">总览</span></span>
+          </button>
+          <button class="nav-item" data-panel="pet" type="button">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 8h16M4 16h16" /><circle cx="9" cy="8" r="2.3" /><circle cx="15" cy="16" r="2.3" /></svg></span>
+            <span class="nav-label"><span class="nav-title">宠物设置</span></span>
+          </button>
+          <button class="nav-item" data-panel="library" type="button">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="M20 16.5 15 11.5 6.5 20" /></svg></span>
+            <span class="nav-label"><span class="nav-title">素材库</span></span>
+          </button>
+          <button class="nav-item" data-panel="software" type="button">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="12" rx="2" /><path d="M3.5 9h17M9 20.5h6" /></svg></span>
+            <span class="nav-label"><span class="nav-title">软件</span></span>
+          </button>
+          <button class="nav-item" data-panel="remind" type="button">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 4.4a5.4 5.4 0 0 0-5.4 5.4c0 3.5-1.3 5-1.3 5h13.4s-1.3-1.5-1.3-5A5.4 5.4 0 0 0 12 4.4Z" /><path d="M10.4 17.8a1.8 1.8 0 0 0 3.2 0" /></svg></span>
+            <span class="nav-label"><span class="nav-title">提醒</span></span>
+          </button>
+          <button class="nav-item" data-panel="about" type="button">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5" /><circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" /></svg></span>
+            <span class="nav-label"><span class="nav-title">关于</span></span>
+          </button>
+        </nav>
+      </aside>
+
+      <!-- 右侧内容 -->
+      <main class="content">
+        <div class="panels">
+          <!-- 总览 -->
+          <section class="panel is-active" data-panel="overview">
+            <header class="panel-head">
+              <h1 class="panel-title">总览</h1>
+              <p class="panel-sub">当前桌宠状态</p>
+            </header>
+            <section class="card overview-card">
+              <div class="overview-avatar"><img id="ov-avatar" alt="" draggable="false" /></div>
+              <div class="overview-info">
+                <div class="overview-meta">
+                  <span class="overview-name" id="ov-name">一二</span>
+                  <span class="overview-badge" id="ov-desc">one two妹</span>
+                </div>
+                <p class="overview-slogan" id="ov-slogan">人生不如意，十有八九，常想一二</p>
+                <div class="overview-rows">
+                  <div class="overview-row"><span class="overview-key">素材数量</span><span class="overview-val" id="ov-assets">—</span></div>
+                  <div class="overview-row"><span class="overview-key">动作模式</span><span class="overview-val" id="ov-mode">—</span></div>
+                  <div class="overview-row"><span class="overview-key">桌宠大小</span><span class="overview-val" id="ov-size">—</span></div>
+                  <div class="overview-row"><span class="overview-key">透明度</span><span class="overview-val" id="ov-opacity">—</span></div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <!-- 宠物设置 -->
+          <section class="panel" data-panel="pet">
+            <header class="panel-head">
+              <h1 class="panel-title">宠物设置</h1>
+              <p class="panel-sub">外观与行为</p>
+            </header>
+            <section class="card">
+              <h2 class="card-title">外观</h2>
+              <div class="opt-row">
+                <span class="opt-label">人物切换</span>
+                <div class="role-row">
+                  <label class="role-opt"><input type="radio" name="active-char" value="yier" /><span class="role-name">一二</span></label>
+                  <label class="role-opt"><input type="radio" name="active-char" value="bubu" /><span class="role-name">布布</span></label>
+                </div>
+              </div>
+              <div class="opt-row opt-row--avatar">
+                <span class="opt-label">头像设置</span>
+                <div id="avatar-picker" class="avatar-picker" role="radiogroup" aria-label="选择头像"></div>
+              </div>
+              <label class="opt-row">
+                <span class="opt-label">宠物大小</span>
+                <input id="opt-size" type="range" min="20" max="200" step="4" />
+                <span id="opt-size-val" class="opt-val">100</span>
+              </label>
+              <label class="opt-row">
+                <span class="opt-label">透明度</span>
+                <input id="opt-opacity" type="range" min="30" max="100" step="5" />
+                <span id="opt-opacity-val" class="opt-val">100%</span>
+              </label>
+            </section>
+            <section class="card">
+              <h2 class="card-title">行为</h2>
+              <div class="opt-row">
+                <span class="opt-label">动作模式<small class="opt-note-inline">桌宠待机时如何展示造型</small></span>
+                <div class="seg" id="behavior-mode" role="radiogroup" aria-label="动作模式">
+                  <button class="seg-btn" data-mode="single" type="button">单一动作</button>
+                  <button class="seg-btn" data-mode="random" type="button">随机轮播</button>
+                  <button class="seg-btn" data-mode="sequential" type="button">顺序轮播</button>
+                </div>
+              </div>
+              <div class="opt-row opt-row--avatar" id="single-row">
+                <span class="opt-label">指定动作<small class="opt-note-inline">选择固定展示的造型</small></span>
+                <div id="single-picker" class="avatar-picker" role="radiogroup" aria-label="选择固定造型"></div>
+              </div>
+              <div class="opt-row" id="freq-row">
+                <span class="opt-label">切换频率<small class="opt-note-inline">每隔多久切换一次</small></span>
+                <div class="interval">
+                  <input id="opt-interval" type="number" min="1" max="86400" step="1" />
+                  <div class="seg seg--unit" id="opt-interval-unit" role="radiogroup" aria-label="频率单位">
+                    <button class="seg-btn" data-unit="s" type="button">秒</button>
+                    <button class="seg-btn" data-unit="m" type="button">分</button>
+                    <button class="seg-btn" data-unit="h" type="button">小时</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <!-- 素材库 -->
+          <section class="panel" data-panel="library">
+            <header class="panel-head">
+              <h1 class="panel-title">素材库</h1>
+              <p class="panel-sub">为每个人物管理造型素材</p>
+            </header>
+            <section class="card">
+              <div class="asset-toolbar">
+                <div class="field">
+                  <span class="field-label">选择人物</span>
+                  <div class="role-row" id="asset-char" role="radiogroup" aria-label="选择人物">
+                    <label class="role-opt"><input type="radio" name="asset-char" value="yier" /><span class="role-name">一二</span></label>
+                    <label class="role-opt"><input type="radio" name="asset-char" value="bubu" /><span class="role-name">布布</span></label>
+                  </div>
+                </div>
+                <div class="field">
+                  <span class="field-label">素材类型</span>
+                  <div class="asset-type-row">
+                    <div class="seg" id="asset-filter">
+                      <button class="seg-btn is-active" data-cat="all" type="button">全部</button>
+                      <button class="seg-btn" data-cat="idle" type="button">待机</button>
+                      <button class="seg-btn" data-cat="drag" type="button">拖拽</button>
+                    </div>
+                    <div class="asset-actions">
+                      <button id="btn-manage" class="btn btn-ghost" type="button" aria-pressed="false">管理</button>
+                      <button id="btn-upload" class="btn btn-primary" type="button">＋ 上传素材</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p id="asset-hint" class="asset-hint">支持 jpg / png / webp / gif / svg，仅保存在本机；上传会归入当前所选类型（“全部”时默认「待机」）。</p>
+              <div id="asset-managebar" class="asset-managebar">
+                <button id="btn-select-all" class="btn btn-ghost" type="button">全选</button>
+                <span id="asset-selcount" class="asset-selcount">已选 0 项</span>
+                <button id="btn-del-selected" class="btn btn-danger" type="button" disabled>删除所选</button>
+              </div>
+              <div id="asset-grid" class="asset-grid"></div>
+            </section>
+          </section>
+
+          <!-- 软件 -->
+          <section class="panel" data-panel="software">
+            <header class="panel-head">
+              <h1 class="panel-title">软件</h1>
+              <p class="panel-sub">启动、更新与系统集成</p>
+            </header>
+            <section class="card">
+              <h2 class="card-title">启动</h2>
+              <div class="opt-row">
+                <span class="opt-label">开机自动运行<small class="opt-note-inline">系统启动时自动打开桌宠</small></span>
+                <label class="switch"><input id="opt-autostart" type="checkbox" /><span class="switch-track"></span></label>
+              </div>
+            </section>
+            <section class="card">
+              <h2 class="card-title">版本更新</h2>
+              <div class="opt-row">
+                <span class="opt-label">自动检查更新<small class="opt-note-inline">打开设置时静默检查，只提示不自动安装</small></span>
+                <label class="switch"><input id="opt-auto-update" type="checkbox" /><span class="switch-track"></span></label>
+              </div>
+              <div class="opt-row">
+                <span class="opt-label">当前版本</span>
+                <span class="upd-version" id="upd-current">—</span>
+                <button id="btn-check-update" class="btn btn-primary" type="button">检查更新</button>
+              </div>
+              <div class="upd-detail" id="upd-detail" data-state="idle">
+                <div class="upd-msg" id="upd-msg" role="status" aria-live="polite"></div>
+                <p class="upd-notes" id="upd-notes"></p>
+                <div class="upd-progress" id="upd-progress"><span class="upd-bar" id="upd-bar"></span></div>
+                <div class="upd-actions" id="upd-actions">
+                  <button id="btn-do-update" class="btn btn-primary" type="button">立即升级</button>
+                  <button id="btn-update-later" class="btn btn-ghost" type="button">稍后</button>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <!-- 提醒 -->
+          <section class="panel" data-panel="remind">
+            <header class="panel-head">
+              <h1 class="panel-title">提醒</h1>
+              <p class="panel-sub">定时提醒你起身活动、补充水分和收工</p>
+            </header>
+
+            <!-- 久坐提醒 -->
+            <section class="card">
+              <h2 class="card-title">久坐提醒</h2>
+              <div class="opt-row">
+                <span class="opt-label">启用提醒<small class="opt-note-inline">每隔一段时间提醒你起身活动</small></span>
+                <label class="switch"><input id="rm-sit-enabled" type="checkbox" /><span class="switch-track"></span></label>
+              </div>
+              <div class="opt-row" id="rm-sit-row-interval">
+                <span class="opt-label">提醒间隔<small class="opt-note-inline">最小 1 分钟</small></span>
+                <div class="interval">
+                  <input id="rm-sit-interval" type="number" min="1" max="480" step="1" />
+                  <div class="seg seg--unit" id="rm-sit-unit" role="radiogroup" aria-label="久坐提醒间隔单位">
+                    <button class="seg-btn" data-unit="s" type="button">秒</button>
+                    <button class="seg-btn" data-unit="m" type="button">分</button>
+                    <button class="seg-btn" data-unit="h" type="button">小时</button>
+                  </div>
+                </div>
+              </div>
+              <div class="opt-row" id="rm-sit-row-close">
+                <span class="opt-label">关闭方式<small class="opt-note-inline">自动关闭＝到时自己收起；手动关闭＝需点确认</small></span>
+                <div class="seg rm-seg" id="rm-sit-close" role="radiogroup" aria-label="久坐提醒关闭方式">
+                  <button class="seg-btn" data-mode="auto" type="button">自动关闭</button>
+                  <button class="seg-btn" data-mode="manual" type="button">手动关闭</button>
+                </div>
+              </div>
+              <div class="opt-row" id="rm-sit-row-text">
+                <span class="opt-label">提醒内容</span>
+                <input id="rm-sit-text" class="rm-text" type="text" maxlength="80" placeholder="留空则用默认文案" />
+              </div>
+            </section>
+
+            <!-- 喝水提醒 -->
+            <section class="card">
+              <h2 class="card-title">喝水提醒</h2>
+              <div class="opt-row">
+                <span class="opt-label">启用提醒<small class="opt-note-inline">每隔一段时间提醒你补充水分</small></span>
+                <label class="switch"><input id="rm-water-enabled" type="checkbox" /><span class="switch-track"></span></label>
+              </div>
+              <div class="opt-row" id="rm-water-row-interval">
+                <span class="opt-label">提醒间隔<small class="opt-note-inline">最小 1 分钟</small></span>
+                <div class="interval">
+                  <input id="rm-water-interval" type="number" min="1" max="480" step="1" />
+                  <div class="seg seg--unit" id="rm-water-unit" role="radiogroup" aria-label="喝水提醒间隔单位">
+                    <button class="seg-btn" data-unit="s" type="button">秒</button>
+                    <button class="seg-btn" data-unit="m" type="button">分</button>
+                    <button class="seg-btn" data-unit="h" type="button">小时</button>
+                  </div>
+                </div>
+              </div>
+              <div class="opt-row" id="rm-water-row-close">
+                <span class="opt-label">关闭方式<small class="opt-note-inline">自动关闭＝到时自己收起；手动关闭＝需点确认</small></span>
+                <div class="seg rm-seg" id="rm-water-close" role="radiogroup" aria-label="喝水提醒关闭方式">
+                  <button class="seg-btn" data-mode="auto" type="button">自动关闭</button>
+                  <button class="seg-btn" data-mode="manual" type="button">手动关闭</button>
+                </div>
+              </div>
+              <div class="opt-row" id="rm-water-row-text">
+                <span class="opt-label">提醒内容</span>
+                <input id="rm-water-text" class="rm-text" type="text" maxlength="80" placeholder="留空则用默认文案" />
+              </div>
+            </section>
+
+            <!-- 下班提醒 -->
+            <section class="card">
+              <h2 class="card-title">下班提醒</h2>
+              <div class="opt-row">
+                <span class="opt-label">启用提醒<small class="opt-note-inline">每天到点提醒你收工</small></span>
+                <label class="switch"><input id="rm-offwork-enabled" type="checkbox" /><span class="switch-track"></span></label>
+              </div>
+              <div class="opt-row" id="rm-offwork-row-time">
+                <span class="opt-label">提醒时间<small class="opt-note-inline">每天到这个时间点提醒一次</small></span>
+                <div class="rm-time-group" id="rm-offwork-time">
+                  <input id="rm-offwork-hour" class="rm-num" type="text" inputmode="numeric" maxlength="2" aria-label="小时" />
+                  <span class="rm-time-colon">:</span>
+                  <input id="rm-offwork-minute" class="rm-num" type="text" inputmode="numeric" maxlength="2" aria-label="分钟" />
+                </div>
+              </div>
+              <div class="opt-row" id="rm-offwork-row-close">
+                <span class="opt-label">关闭方式<small class="opt-note-inline">自动关闭＝到时自己收起；手动关闭＝需点确认</small></span>
+                <div class="seg rm-seg" id="rm-offwork-close" role="radiogroup" aria-label="下班提醒关闭方式">
+                  <button class="seg-btn" data-mode="auto" type="button">自动关闭</button>
+                  <button class="seg-btn" data-mode="manual" type="button">手动关闭</button>
+                </div>
+              </div>
+              <div class="opt-row" id="rm-offwork-row-text">
+                <span class="opt-label">提醒内容</span>
+                <input id="rm-offwork-text" class="rm-text" type="text" maxlength="80" placeholder="留空则用默认文案" />
+              </div>
+            </section>
+          </section>
+
+          <!-- 关于 -->
+          <section class="panel" data-panel="about">
+            <header class="panel-head">
+              <h1 class="panel-title">关于</h1>
+              <p class="panel-sub">版本与致谢</p>
+            </header>
+            <section class="card about-card">
+              <div class="about-hero">
+                <span class="about-logo"><img id="about-avatar" alt="" draggable="false" /></span>
+                <div class="about-hero-text">
+                  <div class="about-appname">oneno 桌宠</div>
+                  <div class="about-tagline">陪你度过桌面时光的小熊</div>
+                </div>
+              </div>
+              <div class="about-rows">
+                <div class="about-row"><span class="about-key">人物作者</span><span class="about-val" id="about-author-character">—</span></div>
+                <div class="about-row"><span class="about-key">程序作者</span><span class="about-val" id="about-author-program">—</span></div>
+                <div class="about-row"><span class="about-key">软件版本</span><span class="about-val" id="about-version">—</span></div>
+              </div>
+              <p class="asset-hint">个人非商业用途，素材版权归原作者所有。</p>
+            </section>
+          </section>
+        </div>
+        <footer class="footer">
+          <span id="opt-status" class="opt-status" role="status" aria-live="polite"></span>
+          <button id="btn-reset" class="btn btn-ghost" type="button">恢复默认</button>
+        </footer>
+      </main>
+      </div>
+    </div>
+    <script type="module" src="/src/settings.ts"></script>
+  </body>
+</html>

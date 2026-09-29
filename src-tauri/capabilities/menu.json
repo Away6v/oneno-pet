@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "menu-capability",
+  "description": "右键菜单窗口：读取自身位置与所在显示器以决定扇形朝向、隐藏自身，并唤起设置窗口。",
+  "windows": ["menu"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-position",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize"
+  ]
+}

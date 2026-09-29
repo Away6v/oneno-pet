@@ -1,0 +1,127 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "oneno-pet",
+  "version": "0.1.0",
+  "identifier": "com.oneno.pet",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "oneno-pet",
+        "url": "index.html",
+        "width": 160,
+        "height": 160,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "shadow": false,
+        "center": true
+      },
+      {
+        "label": "menu",
+        "title": "menu",
+        "url": "menu.html",
+        "width": 480,
+        "height": 480,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "visible": false,
+        "focus": false
+      },
+      {
+        "label": "speech",
+        "title": "speech",
+        "url": "speech.html",
+        "width": 300,
+        "height": 170,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "visible": false,
+        "focus": false
+      },
+      {
+        "label": "countdown",
+        "title": "countdown",
+        "url": "countdown.html",
+        "width": 100,
+        "height": 50,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "visible": false,
+        "focus": false
+      },
+      {
+        "label": "settings",
+        "title": "设置 · oneno-pet",
+        "url": "settings.html",
+        "width": 760,
+        "height": 580,
+        "minWidth": 680,
+        "minHeight": 480,
+        "transparent": false,
+        "decorations": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "resizable": true,
+        "visible": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgwRkY4NjE2RjFDRUUyNzUKUldSMTRzN3hGb2IvZ0pjOWg5RUp5Yk5lZmwrRWRFV3FNYUlJSE44WTByMXBiNUpUd3cvb1ZIcWUK",
+      "endpoints": [
+        "https://github.com/Away6v/oneno-pet/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

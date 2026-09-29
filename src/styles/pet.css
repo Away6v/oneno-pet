@@ -1,0 +1,49 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* 铺满透明窗口，居中显示当前素材 */
+#pet-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+
+#pet-root:active {
+  cursor: grabbing;
+}
+
+/* 双缓冲：两张图叠放，靠 .is-front 交叉淡入淡出；缓和的 ease-in-out 让拖拽起止的造型切换更自然 */
+.pet-img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 240ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 3px 4px rgba(74, 59, 51, 0.25));
+}
+
+.pet-img.is-front {
+  opacity: 1;
+}

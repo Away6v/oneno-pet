@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "speech-capability",
+  "description": "气泡窗口：整窗点击穿透，手动关闭时按光标命中临时取消穿透，并在收起时隐藏自身（不参与焦点竞争）。",
+  "windows": ["speech"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-set-focusable",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-position"
+  ]
+}

@@ -1,0 +1,69 @@
+name: release
+
+# 推送 v* 标签时触发：构建 Windows 安装包 → minisign 签名 → 生成 latest.json → 建 Release（草稿）
+# 客户端固定读取 https://github.com/Away6v/oneno-pet/releases/latest/download/latest.json
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # 缓存 Rust 编译产物，避免每次全量编译
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      # 图标已随仓库提交（src-tauri/icons），无需再跑 npm run icons
+      # 版本号三处必须一致（以 tauri.conf.json 为准），不一致直接失败
+      - name: 校验版本号一致
+        run: npm run sync-version -- --check
+
+      # tag 名必须与 tauri.conf.json 的 version 一致。
+      # 不校验的话，tag 打在了没改版本号的 commit 上时会「静默成功」——
+      # 构建出来的包与 latest.json 里还是旧版本号，客户端永远认为「没有新版」，极难排查。
+      - name: 校验 tag 与版本号一致
+        shell: bash
+        run: |
+          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "v$VER" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} 与 tauri.conf.json 的版本 v$VER 不一致；请先改版本号并提交，再重新打 tag"
+            exit 1
+          fi
+          echo "tag 与版本号一致：v$VER"
+
+      - name: 构建并发布
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 签名私钥：用于给安装包签名，客户端用编译进程序的公钥验签
+          # 当前私钥未设密码，故不需要 TAURI_SIGNING_PRIVATE_KEY_PASSWORD；
+          # 若日后换成带密码的私钥，需在此补上该环境变量并在仓库 Secrets 中配置
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "oneno-pet ${{ github.ref_name }}"
+          releaseBody: "安装包见下方 Assets。已安装旧版本的用户可直接在「设置 → 软件」中一键升级。"
+          # 先出草稿：确认构建无误后手动点发布，latest.json 才会被客户端读到
+          # （releases/latest 只指向已发布且非预发布的 Release）
+          releaseDraft: true
+          prerelease: false
+          # 项目只出 NSIS 包，明确让 updater 清单选它
+          updaterJsonPreferNsis: true

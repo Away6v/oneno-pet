@@ -1,0 +1,32 @@
+{
+  "name": "oneno-pet",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "oneno 桌宠 — 一二 / 布布 桌面宠物 (Tauri v2 + Vite + TypeScript)",
+  "scripts": {
+    "dev": "vite",
+    "check": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "dev:desktop": "tauri dev",
+    "build:desktop": "node scripts/build-desktop.mjs",
+    "icons": "tauri icon public/assets/icon.png",
+    "set-version": "node scripts/set-version.mjs",
+    "sync-version": "node scripts/sync-version.mjs",
+    "wait-release": "node scripts/wait-release.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-process": "^2",
+    "@tauri-apps/plugin-updater": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.2",
+    "vite": "^6.0.0"
+  }
+}

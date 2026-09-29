@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>menu</title>
+    <link rel="stylesheet" href="/src/styles/menu.css" />
+  </head>
+  <body>
+    <!-- 扇环右键菜单：中心圆形头像 + 环形扇面菜单，支持一级 / 二级展开 -->
+    <div id="radial" class="radial" role="menu" aria-label="宠物菜单">
+      <!-- 扇面层：一级 / 二级扇面由 menu.ts 动态生成为 SVG <path> -->
+      <svg id="radial-svg" class="radial-svg" viewBox="0 0 480 480" aria-hidden="true">
+        <g id="radial-layer"></g>
+      </svg>
+      <!-- 中心头像（圆形；点击收起二级 / 关闭菜单） -->
+      <button id="hub" class="hub" type="button" aria-label="关闭菜单">
+        <img id="hub-avatar" class="hub-avatar" alt="" draggable="false" />
+      </button>
+    </div>
+    <script type="module" src="/src/menu.ts"></script>
+  </body>
+</html>

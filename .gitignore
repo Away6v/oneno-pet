@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# frontend build output
+dist/
+
+# rust / tauri build output
+src-tauri/target/
+
+# 更新签名私钥（正常存放在 ~/.tauri 下，此处仅作防呆，避免误提交）
+*.key
+
+# tauri 构建期生成的 ACL 清单 / schema（每次构建自动重写，不入库）
+src-tauri/gen/schemas/
+
+# logs & os junk
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
