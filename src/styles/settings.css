@@ -11,6 +11,19 @@
   --danger: #c0553b;
 }
 
+:root[data-theme="dark"] {
+  --bg: #211d1b;
+  --card: #2b2522;
+  --sidebar: #261f1c;
+  --text: #f3e8df;
+  --muted: #b9a79b;
+  --line: #493b34;
+  --tint: #352b26;
+  --accent: #d89b7e;
+  --accent-dark: #efb99b;
+  --danger: #e17f6b;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -1147,4 +1160,73 @@ input.rm-num {
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+.focus-clock { display:flex; flex-direction:column; align-items:center; gap:4px; padding:18px 0 12px; }
+.focus-clock span:first-child { font-size:42px; font-weight:700; letter-spacing:.04em; color:var(--accent-dark); }
+.focus-clock span:last-child { color:var(--muted); }
+.focus-actions { display:flex; justify-content:center; gap:8px; }
+.focus-settings { display:flex; justify-content:center; gap:14px; margin-top:16px; color:var(--muted); }
+.focus-settings input { width:58px; margin-left:4px; }
+.card-title-row { display:flex; align-items:center; justify-content:space-between; }
+.task-add { display:flex; gap:8px; margin:12px 0; }
+.task-add input { flex:1; min-width:0; }
+.task-list { display:flex; flex-direction:column; gap:6px; max-height:230px; overflow:auto; }
+.task-item { display:flex; align-items:center; gap:8px; padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--tint); }
+.task-item.is-done { opacity:.55; text-decoration:line-through; }
+.task-item .task-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.task-delete { border:0; background:none; color:var(--danger); cursor:pointer; font-size:16px; }
+
+/* 深色主题的控件覆盖：避免沿用浅色背景导致文字对比度不足。 */
+:root[data-theme="dark"] .nav-item:hover {
+  background: #352d29;
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .nav-icon {
+  background: #f5eee8;
+  color: #b8795f;
+}
+
+:root[data-theme="dark"] .nav-item.is-active .nav-icon {
+  background: var(--accent-dark);
+  color: #2b211d;
+}
+
+:root[data-theme="dark"] input[type="number"],
+:root[data-theme="dark"] input[type="text"] {
+  background: #332b28;
+  color: var(--text);
+}
+
+:root[data-theme="dark"] input.rm-text {
+  background: #332b28;
+}
+
+:root[data-theme="dark"] input.rm-text:focus {
+  background: #3b302c;
+}
+
+:root[data-theme="dark"] input[type="number"]::placeholder,
+:root[data-theme="dark"] input[type="text"]::placeholder,
+:root[data-theme="dark"] input.rm-text::placeholder {
+  color: #c7b7ab;
+  opacity: 1;
+}
+
+:root[data-theme="dark"] .btn-ghost {
+  color: #f0c0a7;
+  border-color: #6a5044;
+}
+
+:root[data-theme="dark"] .btn-ghost:hover {
+  background: #3b302c;
+  color: #ffd6c1;
+}
+
+:root[data-theme="dark"] .seg-btn {
+  color: #d2c1b6;
+}
+
+:root[data-theme="dark"] .seg-btn.is-active {
+  color: #2b211d;
 }

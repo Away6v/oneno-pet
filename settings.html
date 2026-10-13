@@ -42,6 +42,10 @@
             <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 8h16M4 16h16" /><circle cx="9" cy="8" r="2.3" /><circle cx="15" cy="16" r="2.3" /></svg></span>
             <span class="nav-label"><span class="nav-title">宠物设置</span></span>
           </button>
+          <button class="nav-item" data-panel="productivity" type="button">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M8 9h8M8 13h6M8 17h4"/></svg></span>
+            <span class="nav-label"><span class="nav-title">专注与待办</span></span>
+          </button>
           <button class="nav-item" data-panel="library" type="button">
             <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="M20 16.5 15 11.5 6.5 20" /></svg></span>
             <span class="nav-label"><span class="nav-title">素材库</span></span>
@@ -143,6 +147,38 @@
                   </div>
                 </div>
               </div>
+              <div class="opt-row">
+                <span class="opt-label">桌面行为<small class="opt-note-inline">锁定后不能拖动，点击穿透适合观看视频时使用</small></span>
+                <label class="switch"><span class="switch-label">锁定</span><input id="opt-locked" type="checkbox" /><span class="switch-track"></span></label>
+                <label class="switch"><span class="switch-label">穿透</span><input id="opt-click-through" type="checkbox" /><span class="switch-track"></span></label>
+              </div>
+            </section>
+          </section>
+
+          <!-- 专注与待办 -->
+          <section class="panel" data-panel="productivity">
+            <header class="panel-head">
+              <h1 class="panel-title">专注与待办</h1>
+              <p class="panel-sub">把今天要做的事交给桌宠记住</p>
+            </header>
+            <section class="card">
+              <h2 class="card-title">番茄钟</h2>
+              <div class="focus-clock"><span id="focus-time">25:00</span><span id="focus-phase">准备开始</span></div>
+              <div class="focus-actions">
+                <button id="focus-start" class="btn btn-primary" type="button">开始专注</button>
+                <button id="focus-pause" class="btn btn-ghost" type="button">暂停</button>
+                <button id="focus-reset" class="btn btn-ghost" type="button">结束</button>
+              </div>
+              <div class="focus-settings">
+                <label>专注 <input id="focus-minutes" type="number" min="1" max="120" /></label>
+                <label>短休息 <input id="break-minutes" type="number" min="1" max="60" /></label>
+                <label>长休息 <input id="long-break-minutes" type="number" min="1" max="120" /></label>
+              </div>
+            </section>
+            <section class="card">
+              <div class="card-title-row"><h2 class="card-title">今天的待办</h2><span id="task-count" class="opt-val">0 项</span></div>
+              <div class="task-add"><input id="task-title" type="text" maxlength="120" placeholder="添加一件要完成的事" /><button id="task-add" class="btn btn-primary" type="button">添加</button></div>
+              <div id="task-list" class="task-list"></div>
             </section>
           </section>
 
@@ -198,6 +234,14 @@
                 <span class="opt-label">开机自动运行<small class="opt-note-inline">系统启动时自动打开桌宠</small></span>
                 <label class="switch"><input id="opt-autostart" type="checkbox" /><span class="switch-track"></span></label>
               </div>
+              <div class="opt-row">
+                <span class="opt-label">界面主题<small class="opt-note-inline">跟随系统、浅色或深色</small></span>
+                <div class="seg" id="theme-mode" role="radiogroup" aria-label="界面主题">
+                  <button class="seg-btn" data-theme="system" type="button">跟随系统</button>
+                  <button class="seg-btn" data-theme="light" type="button">浅色</button>
+                  <button class="seg-btn" data-theme="dark" type="button">深色</button>
+                </div>
+              </div>
             </section>
             <section class="card">
               <h2 class="card-title">版本更新</h2>
@@ -226,8 +270,17 @@
           <section class="panel" data-panel="remind">
             <header class="panel-head">
               <h1 class="panel-title">提醒</h1>
-              <p class="panel-sub">定时提醒你起身活动、补充水分和收工</p>
+              <p class="panel-sub">闲置碎碎念与定时提醒</p>
             </header>
+
+            <!-- 闲置碎碎念 -->
+            <section class="card">
+              <h2 class="card-title">碎碎念</h2>
+              <div class="opt-row">
+                <span class="opt-label">启用碎碎念<small class="opt-note-inline">桌宠空闲时随机说一句预设短句</small></span>
+                <label class="switch"><input id="rm-chatter-enabled" type="checkbox" /><span class="switch-track"></span></label>
+              </div>
+            </section>
 
             <!-- 久坐提醒 -->
             <section class="card">

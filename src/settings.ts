@@ -12,10 +12,13 @@ import {
   UPDATE_DOWNLOAD_TIMEOUT_MS,
 } from "./core/updater";
 import { loadConfig, saveConfig, REMINDER_TEXT_MAX } from "./core/config";
+import { loadProductivity, saveProductivity, createTask, focusDuration, type ProductivityData } from "./core/productivity";
 import {
   emitConfigChanged,
   emitAssetsChanged,
   onAssetsChanged,
+  emitSpeak,
+  onConfigChanged,
 } from "./core/bus";
 import {
   listAllForCharacter,
@@ -116,6 +119,9 @@ const BASE_HINT =
   "支持 jpg / png / webp / gif / svg，仅保存在本机；上传会归入当前所选类型（“全部”时默认「待机」）。";
 
 let config: AppConfig;
+let productivity: ProductivityData = { tasks: [], focusSessions: [] };
+let focusTimer: number | null = null;
+let focusEndsAt = 0;
 let assetFilter: FilterKey = "all";
 let managing = false; // 素材库「管理」模式：开启时才显示删除按钮 + 支持多选批量删除
 const selectedIds = new Set<string>(); // 管理模式下已勾选待删的素材 id（仅当前视图内有效）
@@ -130,6 +136,7 @@ async function main(): Promise<void> {
   });
 
   config = await loadConfig();
+  productivity = await loadProductivity();
   setHiddenBuiltins(config.hiddenBuiltins);
 
   setupWindowControls();
@@ -137,12 +144,30 @@ async function main(): Promise<void> {
   setStatic();
   bindActiveCharacter();
   bindAppearance();
+  bindDesktopOptions();
   bindBehavior();
   bindAutostart();
   bindUpdate();
   bindReminders();
   bindAssetControls();
   bindReset();
+  bindProductivity();
+  applyTheme();
+  await win.listen("oneno-open-productivity", () => {
+    const button = document.querySelector<HTMLButtonElement>('[data-panel="productivity"]');
+    button?.click();
+  });
+  await onConfigChanged((next) => {
+    config = next;
+    syncControls();
+    if (config.focus.running && !config.focus.paused) {
+      focusEndsAt = config.focus.endsAt ?? (Date.now() + focusDuration(config.focus));
+      if (focusTimer === null) startFocusTimer();
+    } else if (!config.focus.running) {
+      stopFocusTimer();
+    }
+    renderFocusClock();
+  });
 
   syncControls();
   await setVersion();
@@ -151,6 +176,7 @@ async function main(): Promise<void> {
   await renderAvatarPicker();
   await renderSinglePicker();
   await renderGrid();
+  renderProductivity();
 
   // 素材若从别处变更也刷新网格 / 头像选择 / 单一动作选择
   await onAssetsChanged(async () => {
@@ -206,9 +232,16 @@ function categoryLabel(cat: AssetCategory): string {
 
 /** 保存到本地并广播给桌宠窗口（即时生效），随后提示已保存 */
 async function persist(): Promise<void> {
-  await saveConfig(config);
-  await emitConfigChanged(config);
-  flashSaved();
+  config.revision += 1;
+  try {
+    await saveConfig(config);
+    await emitConfigChanged(config);
+    flashSaved();
+  } catch (error) {
+    config.revision = Math.max(0, config.revision - 1);
+    flashSaved("保存失败，请重试", false);
+    console.error("设置保存失败:", error);
+  }
 }
 
 /** 底部状态区短暂提示 */
@@ -387,6 +420,17 @@ function syncControls(): void {
   ) as HTMLInputElement | null;
   if (autoUpdate) autoUpdate.checked = config.autoCheckUpdate;
 
+  const locked = document.getElementById("opt-locked") as HTMLInputElement | null;
+  if (locked) locked.checked = config.desktop.locked;
+  const clickThrough = document.getElementById("opt-click-through") as HTMLInputElement | null;
+  if (clickThrough) clickThrough.checked = config.desktop.clickThrough;
+  document.querySelectorAll<HTMLButtonElement>("#theme-mode .seg-btn").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.theme === config.theme);
+  });
+
+  const chatter = byId<HTMLInputElement>("rm-chatter-enabled");
+  chatter.checked = config.idleChatterEnabled;
+
   // 提醒：启用开关 / 间隔（或时间点）/ 关闭方式 / 文案
   for (const kind of REMINDER_KINDS) {
     const rc = config.reminders[kind];
@@ -411,6 +455,24 @@ function syncControls(): void {
     applyReminderCloseMode(kind, rc.closeMode);
     applyReminderCollapse(kind, rc.enabled);
   }
+}
+
+function bindDesktopOptions(): void {
+  ["opt-locked", "opt-click-through"].forEach((id) => {
+    byId<HTMLInputElement>(id).addEventListener("change", () => {
+      config.desktop.locked = byId<HTMLInputElement>("opt-locked").checked;
+      config.desktop.clickThrough = byId<HTMLInputElement>("opt-click-through").checked;
+      void persist();
+    });
+  });
+  byId("theme-mode").addEventListener("click", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>(".seg-btn");
+    if (!button || !button.dataset.theme) return;
+    config.theme = button.dataset.theme as AppConfig["theme"];
+    applyTheme();
+    syncControls();
+    void persist();
+  });
 }
 
 // ── 外观：人物切换 / 大小 / 透明度 ────────────
@@ -940,6 +1002,15 @@ function describeUpdateError(e: unknown): string {
 // 久坐与喝水为「间隔型」，下班为「每日定时型」；三者的会话框都可选自动关闭或手动关闭。
 // 注意：处理函数里一律现读 config.reminders[kind]，不要在外层捕获引用——「恢复默认」会整体替换 config。
 function bindReminders(): void {
+  // 碎碎念开关：关闭后保留预设短句，仅停止闲置时自动弹出
+  byId<HTMLInputElement>("rm-chatter-enabled").addEventListener(
+    "change",
+    async (e) => {
+      config.idleChatterEnabled = (e.target as HTMLInputElement).checked;
+      await persist();
+    },
+  );
+
   for (const kind of REMINDER_KINDS) {
     const enabled = byId<HTMLInputElement>(`rm-${kind}-enabled`);
     const text = byId<HTMLInputElement>(`rm-${kind}-text`);
@@ -1407,6 +1478,190 @@ function bindReset(): void {
     await emitAssetsChanged(config.activeCharacter); // 通知桌宠重载，复原被隐藏的内置造型
     flashSaved("已恢复默认设置");
   });
+}
+
+function applyTheme(): void {
+  const root = document.documentElement;
+  if (config.theme === "dark") root.dataset.theme = "dark";
+  else if (config.theme === "light") root.dataset.theme = "light";
+  else root.dataset.theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function renderProductivity(): void {
+  const list = byId("task-list");
+  list.innerHTML = "";
+  const visible = productivity.tasks.filter((task) => !task.completed || task.completedAt && Date.now() - task.completedAt < 86_400_000);
+  setText("task-count", `${visible.filter((task) => !task.completed).length} 项未完成`);
+  if (visible.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "asset-hint";
+    empty.textContent = "今天还没有待办，先写下一件小事吧。";
+    list.appendChild(empty);
+    return;
+  }
+  visible.forEach((task) => {
+    const row = document.createElement("div");
+    row.className = `task-item${task.completed ? " is-done" : ""}`;
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.checked = task.completed;
+    check.addEventListener("change", () => void toggleTask(task.id));
+    const title = document.createElement("span");
+    title.className = "task-title";
+    title.textContent = task.title;
+    title.title = task.note || task.title;
+    const focus = document.createElement("button");
+    focus.className = "btn btn-ghost";
+    focus.type = "button";
+    focus.textContent = "专注";
+    focus.addEventListener("click", () => void startFocus(task.id));
+    const del = document.createElement("button");
+    del.className = "task-delete";
+    del.type = "button";
+    del.textContent = "×";
+    del.title = "删除待办";
+    del.addEventListener("click", () => void deleteTask(task.id));
+    row.append(check, title, focus, del);
+    list.appendChild(row);
+  });
+}
+
+async function persistProductivity(): Promise<void> {
+  try {
+    await saveProductivity(productivity);
+    renderProductivity();
+  } catch (error) {
+    flashSaved("待办保存失败，请重试", false);
+    console.error("待办保存失败:", error);
+  }
+}
+
+function bindProductivity(): void {
+  byId<HTMLInputElement>("task-title").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") void addTask();
+  });
+  byId("task-add").addEventListener("click", () => void addTask());
+  byId("focus-start").addEventListener("click", () => void startFocus(config.focus.taskId));
+  byId("focus-pause").addEventListener("click", () => toggleFocusPause());
+  byId("focus-reset").addEventListener("click", () => void stopFocus());
+  ["focus-minutes", "break-minutes", "long-break-minutes"].forEach((id) => {
+    byId<HTMLInputElement>(id).addEventListener("change", () => {
+      config.focus.focusMinutes = clampNum(Number(byId<HTMLInputElement>("focus-minutes").value), 1, 120);
+      config.focus.shortBreakMinutes = clampNum(Number(byId<HTMLInputElement>("break-minutes").value), 1, 60);
+      config.focus.longBreakMinutes = clampNum(Number(byId<HTMLInputElement>("long-break-minutes").value), 1, 120);
+      void persist();
+    });
+  });
+  byId<HTMLInputElement>("focus-minutes").value = String(config.focus.focusMinutes);
+  byId<HTMLInputElement>("break-minutes").value = String(config.focus.shortBreakMinutes);
+  byId<HTMLInputElement>("long-break-minutes").value = String(config.focus.longBreakMinutes);
+  renderFocusClock();
+}
+
+async function addTask(): Promise<void> {
+  const input = byId<HTMLInputElement>("task-title");
+  const title = input.value.trim();
+  if (!title) return;
+  productivity.tasks.unshift(createTask(title));
+  input.value = "";
+  await persistProductivity();
+}
+
+async function toggleTask(id: string): Promise<void> {
+  const task = productivity.tasks.find((item) => item.id === id);
+  if (!task) return;
+  task.completed = !task.completed;
+  task.completedAt = task.completed ? Date.now() : null;
+  await persistProductivity();
+}
+
+async function deleteTask(id: string): Promise<void> {
+  productivity.tasks = productivity.tasks.filter((task) => task.id !== id);
+  if (config.focus.taskId === id) config.focus.taskId = null;
+  await persistProductivity();
+}
+
+async function startFocus(taskId: string | null): Promise<void> {
+  config.appMode = "focus";
+  config.focus.taskId = taskId;
+  config.focus.running = true;
+  config.focus.paused = false;
+  config.focus.phase = "focus";
+  config.focus.endsAt = Date.now() + focusDuration(config.focus);
+  focusEndsAt = config.focus.endsAt;
+  await persist();
+  startFocusTimer();
+}
+
+function toggleFocusPause(): void {
+  if (!config.focus.running) return;
+  config.focus.paused = !config.focus.paused;
+  if (config.focus.paused) stopFocusTimer();
+  else {
+    config.focus.endsAt = Date.now() + remainingFocusMs();
+    focusEndsAt = config.focus.endsAt;
+    startFocusTimer();
+  }
+  void persist();
+  renderFocusClock();
+}
+
+async function stopFocus(): Promise<void> {
+  stopFocusTimer();
+  config.focus.running = false;
+  config.focus.paused = false;
+  config.focus.endsAt = null;
+  config.appMode = "companion";
+  await persist();
+  renderFocusClock();
+}
+
+function startFocusTimer(): void {
+  stopFocusTimer();
+  focusTimer = window.setInterval(() => {
+    if (!config.focus.running || config.focus.paused) return;
+    if (Date.now() >= focusEndsAt) {
+      void advanceFocusPhase();
+      return;
+    }
+    renderFocusClock();
+  }, 1000);
+  renderFocusClock();
+}
+
+function stopFocusTimer(): void {
+  if (focusTimer !== null) window.clearInterval(focusTimer);
+  focusTimer = null;
+}
+
+async function advanceFocusPhase(): Promise<void> {
+  const finishedPhase = config.focus.phase;
+  if (config.focus.phase === "focus") {
+    config.focus.round += 1;
+    config.focus.phase = config.focus.round % config.focus.roundsBeforeLongBreak === 0 ? "longBreak" : "shortBreak";
+  } else config.focus.phase = "focus";
+  config.focus.running = false;
+  config.focus.endsAt = null;
+  stopFocusTimer();
+  await persist();
+  const message = finishedPhase === "focus"
+    ? "专注完成啦，辛苦了！起来活动一下吧～"
+    : finishedPhase === "longBreak"
+      ? "长休息结束，准备好开始下一轮了吗？"
+      : "短休息结束，准备继续专注吧～";
+  void emitSpeak({ text: message, durationMs: 3600, source: finishedPhase === "focus" ? "celebrate" : "interaction" });
+  renderFocusClock();
+}
+
+function remainingFocusMs(): number {
+  return Math.max(0, focusEndsAt - Date.now());
+}
+
+function renderFocusClock(): void {
+  const ms = config.focus.running && !config.focus.paused ? remainingFocusMs() : focusDuration(config.focus);
+  const total = Math.ceil(ms / 1000);
+  setText("focus-time", `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`);
+  setText("focus-phase", config.focus.paused ? "已暂停" : config.focus.running ? (config.focus.phase === "focus" ? "专注中" : "休息中") : "准备开始");
 }
 
 main().catch((e) => console.error("settings 初始化失败:", e));

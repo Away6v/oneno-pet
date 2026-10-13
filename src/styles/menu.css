@@ -172,6 +172,18 @@ body {
   fill: var(--tint);
   transform: scale(1.06); /* 悬浮时朝外推一点，手感更「活」 */
 }
+
+/* 点击反馈：菜单关闭前保留一个短促的按下缩放与高亮。 */
+.node.is-pressed .node-sector {
+  fill: var(--accent);
+  stroke: var(--accent-dark);
+  transform: scale(0.92);
+  filter: drop-shadow(0 1px 2px rgba(74, 59, 51, 0.24));
+}
+
+.node.is-pressed .node-glyph {
+  transform: scale(0.88);
+}
 .node--danger {
   color: var(--danger);
 }

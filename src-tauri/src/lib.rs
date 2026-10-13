@@ -56,7 +56,7 @@ fn read_manifest(app: &AppHandle) -> Result<Vec<CustomAsset>, String> {
 fn write_manifest(app: &AppHandle, items: &[CustomAsset]) -> Result<(), String> {
     let p = manifest_path(app)?;
     let raw = serde_json::to_string_pretty(items).map_err(|e| e.to_string())?;
-    fs::write(&p, raw).map_err(|e| e.to_string())
+    atomic_write(&p, raw.as_bytes())
 }
 
 /// 退出应用
@@ -87,7 +87,39 @@ fn save_config(app: AppHandle, config: Value) -> Result<(), String> {
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let p = dir.join("config.json");
     let raw = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    fs::write(&p, raw).map_err(|e| e.to_string())
+    atomic_write(&p, raw.as_bytes())
+}
+
+/// 使用同目录临时文件替换，避免进程中断时留下半份配置。
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    if path.exists() {
+        let backup = path.with_extension("bak");
+        let _ = fs::copy(path, backup);
+        // Windows 的 rename 不能覆盖已有目标，先删除已备份的旧文件。
+        let _ = fs::remove_file(path);
+    }
+    fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+/// 读取本地业务数据（待办与专注记录独立于桌宠配置）。
+#[tauri::command]
+fn load_productivity(app: AppHandle) -> Result<Option<Value>, String> {
+    let p = data_dir(&app)?.join("productivity.json");
+    if !p.exists() { return Ok(None); }
+    let raw = fs::read_to_string(&p).map_err(|e| e.to_string())?;
+    if raw.trim().is_empty() { return Ok(None); }
+    serde_json::from_str(&raw).map(Some).map_err(|e| e.to_string())
+}
+
+/// 保存本地业务数据，使用原子替换。
+#[tauri::command]
+fn save_productivity(app: AppHandle, data: Value) -> Result<(), String> {
+    let dir = data_dir(&app)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let raw = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+    atomic_write(&dir.join("productivity.json"), raw.as_bytes())
 }
 
 /// 列出全部自定义素材，按角色分组：{ "yier": [...], "bubu": [...] }
@@ -451,6 +483,8 @@ pub fn run() {
             quit,
             load_config,
             save_config,
+            load_productivity,
+            save_productivity,
             list_custom_assets,
             add_custom_asset,
             remove_custom_asset,

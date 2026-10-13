@@ -1,7 +1,6 @@
 import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { invoke } from "@tauri-apps/api/core";
-import { loadConfig } from "./core/config";
+import { loadConfig, saveConfig } from "./core/config";
 import {
   onConfigChanged,
   onAssetsChanged,
@@ -9,6 +8,8 @@ import {
   onMenuPrepare,
   emitCountdownToggle,
   emitCountdownQuery,
+  emitConfigChanged,
+  emitSpeak,
 } from "./core/bus";
 import {
   getAvatarSrc,
@@ -37,19 +38,21 @@ const ICONS = {
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>',
   clock:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.4V12l3.1 1.9"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 8.8c0 5.4-8.8 10.2-8.8 10.2S3.2 14.2 3.2 8.8A4.7 4.7 0 0 1 12 6.2a4.7 4.7 0 0 1 8.8 2.6Z"/></svg>',
+  focus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.8"/><path d="M12 8v4l2.8 1.8M4 4l2 2m14-2-2 2"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 15.5A8.7 8.7 0 0 1 8.5 4 8.7 8.7 0 1 0 20 15.5Z"/></svg>',
+  check: '<path d="M5 12.5 9.3 17 19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
 } as const;
 
 // —— 菜单定义（下班倒计时 / 设置 / 退出）——
 // 给任一项加 children 即成为可展开父项，点击会展开二级环（见 expand / collapseLevel2）。
 // ⚠️ 每个菜单项 id 必须唯一（含二级）——expand() 靠 id 匹配高亮父项/淡出其余项。
 const MENU: RadialItem[] = [
-  {
-    id: "quit",
-    label: "退出",
-    icon: ICONS.power,
-    danger: true,
-    action: quitApp,
-  },
+  { id: "pet", label: "摸摸", icon: ICONS.heart, action: interactPet },
+  { id: "focus", label: "专注", icon: ICONS.focus, action: toggleFocusMode },
+  { id: "todos", label: "待办", icon: ICONS.list, action: openProductivity },
+  { id: "quiet", label: "勿扰", icon: ICONS.moon, action: toggleQuietMode },
   {
     id: "countdown",
     label: "下班倒计时",
@@ -257,7 +260,16 @@ function buildLevel1(): void {
   });
   layer.insertAdjacentHTML("beforeend", html);
   applyCountdownActive(); // 节点刚被重建，重新套用「已开启」高亮
+  applyModeActive();
   syncLabelHits(layer); // 节点刚被重建，按实测文字盒重铺标签命中层
+}
+
+/** 根据当前工作模式高亮专注 / 勿扰菜单项，重新打开菜单时也能看出当前状态。 */
+function applyModeActive(): void {
+  layerEl().querySelectorAll<SVGGElement>(".node--l1").forEach((node) => {
+    const id = node.dataset.id;
+    node.classList.toggle("node--on", (id === "focus" && current?.appMode === "focus") || (id === "quiet" && current?.appMode === "doNotDisturb"));
+  });
 }
 
 // —— 开关型菜单项高亮：给当前处于开启态的那一项（如下班倒计时）套上 node--on ——
@@ -333,6 +345,20 @@ async function onItemClick(item: RadialItem, deg: number): Promise<void> {
   await item.action?.();
 }
 
+/** 点击后把当前扇区图标临时替换成勾选，给用户一个清晰的完成反馈。 */
+function showClickIcon(node: SVGGElement): void {
+  const svg = node.querySelector<SVGSVGElement>(".node-glyph svg");
+  if (!svg) return;
+  if (!node.dataset.originalIcon) node.dataset.originalIcon = svg.innerHTML;
+  svg.innerHTML = ICONS.check;
+  window.setTimeout(() => {
+    const original = node.dataset.originalIcon;
+    if (!original || !node.isConnected) return;
+    svg.innerHTML = original;
+    delete node.dataset.originalIcon;
+  }, 650);
+}
+
 // —— 展开父项的二级扇环（落在对应一级扇面之外，以父项角度为中心的相邻扇形）——
 function expand(item: RadialItem, parentMid: number): void {
   collapseLevel2(true);
@@ -392,8 +418,76 @@ async function openSettings(): Promise<void> {
     await settings.setFocus();
   }
 }
-function quitApp(): void {
-  void invoke("quit");
+
+async function persistMenuConfig(next: AppConfig): Promise<void> {
+  try {
+    await saveConfig(next);
+    current = next;
+    await emitConfigChanged(next);
+    await render();
+  } catch (error) {
+    console.error("快捷菜单保存失败:", error);
+  }
+}
+
+function interactPet(): void {
+  void emitSpeak({ text: "今天也要被好好照顾哦～", durationMs: 2600, source: "interaction" });
+  window.setTimeout(closeMenu, 180);
+}
+
+async function toggleFocusMode(): Promise<void> {
+  const starting = current.appMode !== "focus" || !current.focus.running;
+  const next: AppConfig = {
+    ...current,
+    appMode: starting ? "focus" : "companion",
+    focus: starting
+      ? {
+          ...current.focus,
+          running: true,
+          paused: false,
+          phase: "focus",
+          endsAt: Date.now() + current.focus.focusMinutes * 60_000,
+        }
+      : {
+          ...current.focus,
+          running: false,
+          paused: false,
+          endsAt: null,
+        },
+  };
+  await persistMenuConfig(next);
+  void emitSpeak({
+    text: starting ? `专注开始，接下来 ${next.focus.focusMinutes} 分钟我会安静陪着你。` : "专注结束，回到陪伴模式～",
+    durationMs: 2600,
+    source: starting ? "focus" : "interaction",
+  });
+  window.setTimeout(closeMenu, 180);
+}
+
+async function toggleQuietMode(): Promise<void> {
+  const next: AppConfig = {
+    ...current,
+    appMode: current.appMode === "doNotDisturb" ? "companion" : "doNotDisturb",
+    quietUntil: null,
+  };
+  await persistMenuConfig(next);
+  void emitSpeak({
+    text: next.appMode === "doNotDisturb" ? "好哒，我先安静一会儿。" : "我回来陪你啦～",
+    durationMs: 2400,
+    source: next.appMode === "doNotDisturb" ? "rest" : "interaction",
+  });
+  window.setTimeout(closeMenu, 180);
+}
+
+async function openProductivity(): Promise<void> {
+  closeMenu();
+  const settings = await WebviewWindow.getByLabel("settings");
+  if (!settings) return;
+  await settings.show();
+  await settings.unminimize();
+  await settings.setFocus();
+  // 设置页读取该参数后直接打开“专注与待办”页。
+  await settings.emit("oneno-open-productivity");
 }
 /** 切换下班倒计时面板（面板的显隐与定位由主窗口统一管理，本窗口只发请求） */
 function toggleCountdown(): void {
@@ -406,6 +500,7 @@ async function render(): Promise<void> {
   const avatar = el<HTMLImageElement>("hub-avatar");
   avatar.src = await getAvatarSrc(c, current.avatarIds[c]);
   radialEl().dataset.character = c;
+  applyModeActive();
 }
 async function main(): Promise<void> {
   document.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -430,8 +525,13 @@ async function main(): Promise<void> {
     const g = (e.target as Element).closest?.(".node") as SVGGElement | null;
     if (g) {
       const item = itemById.get(g.dataset.id || "");
-      if (item)
+      if (item && !g.classList.contains("is-pressed")) {
+        // 保留一小段按下态，让用户明确看到点击已经命中。
+        g.classList.add("is-pressed");
+        showClickIcon(g);
+        window.setTimeout(() => g.classList.remove("is-pressed"), 220);
         void onItemClick(item, parseFloat(g.dataset.mid || String(sideDeg(l1Side))));
+      }
       return; // 命中菜单项：不关闭菜单
     }
     closeMenu(); // 点击空白背景：关闭
@@ -448,6 +548,7 @@ async function main(): Promise<void> {
     current = next;
     setHiddenBuiltins(current.hiddenBuiltins); // 同步内置隐藏，避免头像解析到已隐藏造型
     await render();
+    applyModeActive();
   });
   // 自定义素材增删后刷新缓存并重绘
   await onAssetsChanged(async () => {

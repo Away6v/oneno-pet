@@ -27,13 +27,17 @@ export async function saveConfig(config: AppConfig): Promise<void> {
   try {
     await invoke("save_config", { config });
   } catch (e) {
+    // 保存失败必须抛回调用方，避免界面误报“已保存”。
     console.error("save_config 失败:", e);
+    throw e;
   }
 }
 
 /** 合并默认值并做基本校验 / 夹取 */
 export function normalize(raw: Partial<AppConfig>): AppConfig {
   const cfg: AppConfig = { ...DEFAULT_CONFIG, ...raw };
+  cfg.configVersion = 2;
+  cfg.revision = Number.isFinite(Number(raw.revision)) ? Math.max(0, Math.floor(Number(raw.revision))) : 0;
   if (cfg.activeCharacter !== "yier" && cfg.activeCharacter !== "bubu") {
     cfg.activeCharacter = DEFAULT_CONFIG.activeCharacter;
   }
@@ -118,6 +122,14 @@ export function normalize(raw: Partial<AppConfig>): AppConfig {
     rawUnit === "s" || rawUnit === "m" || rawUnit === "h"
       ? rawUnit
       : DEFAULT_CONFIG.idleIntervalUnit;
+
+  // 碎碎念开关仅接受布尔值；旧配置没有该字段时默认开启，保持原有行为
+  const rawChatter = (raw as Record<string, unknown>).idleChatterEnabled;
+  cfg.idleChatterEnabled =
+    typeof rawChatter === "boolean"
+      ? rawChatter
+      : DEFAULT_CONFIG.idleChatterEnabled;
+
   // 丢弃旧的区间字段（当前 AppConfig 已移除，显式声明为可选后再删除），避免残留在持久化配置里
   const cleaned = cfg as AppConfig & { idleMinMs?: number; idleMaxMs?: number };
   delete cleaned.idleMinMs;
@@ -128,6 +140,37 @@ export function normalize(raw: Partial<AppConfig>): AppConfig {
     cfg.petPosition = null;
   }
   cfg.autostart = Boolean(cfg.autostart);
+
+  const mode = (raw as Record<string, unknown>).appMode;
+  cfg.appMode = mode === "focus" || mode === "doNotDisturb" ? mode : "companion";
+  const quietUntil = Number((raw as Record<string, unknown>).quietUntil);
+  cfg.quietUntil = Number.isFinite(quietUntil) && quietUntil > 0 ? quietUntil : null;
+  const theme = (raw as Record<string, unknown>).theme;
+  cfg.theme = theme === "light" || theme === "dark" ? theme : "system";
+  const desktop = ((raw as Record<string, unknown>).desktop ?? {}) as Record<string, unknown>;
+  cfg.desktop = {
+    locked: Boolean(desktop.locked),
+    snapToEdge: Boolean(desktop.snapToEdge),
+    clickThrough: Boolean(desktop.clickThrough),
+  };
+  const focus = ((raw as Record<string, unknown>).focus ?? {}) as Record<string, unknown>;
+  const positiveInt = (value: unknown, fallback: number, max: number): number => {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) && n > 0 ? Math.min(max, n) : fallback;
+  };
+  const phase = focus.phase;
+  cfg.focus = {
+    focusMinutes: positiveInt(focus.focusMinutes, DEFAULT_CONFIG.focus.focusMinutes, 120),
+    shortBreakMinutes: positiveInt(focus.shortBreakMinutes, DEFAULT_CONFIG.focus.shortBreakMinutes, 60),
+    longBreakMinutes: positiveInt(focus.longBreakMinutes, DEFAULT_CONFIG.focus.longBreakMinutes, 120),
+    roundsBeforeLongBreak: positiveInt(focus.roundsBeforeLongBreak, DEFAULT_CONFIG.focus.roundsBeforeLongBreak, 12),
+    taskId: typeof focus.taskId === "string" ? focus.taskId : null,
+    running: Boolean(focus.running),
+    paused: Boolean(focus.paused),
+    phase: phase === "shortBreak" || phase === "longBreak" ? phase : "focus",
+    round: positiveInt(focus.round, 1, 12),
+    endsAt: Number.isFinite(Number(focus.endsAt)) ? Number(focus.endsAt) : null,
+  };
 
   // 提醒配置：重建为独立对象（勿共享 DEFAULT_CONFIG.reminders 引用，否则设置页改写会污染默认值）
   cfg.reminders = normalizeReminders(raw.reminders);

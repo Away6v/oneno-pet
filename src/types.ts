@@ -8,6 +8,33 @@ export type IntervalUnit = "s" | "m" | "h";
 export type ReminderKind = "sit" | "water" | "offwork";
 /** 提醒会话框的关闭方式：auto 自动收起 / manual 显示确认按钮，需用户点击关闭 */
 export type ReminderCloseMode = "auto" | "manual";
+/** 桌宠当前工作模式：陪伴 / 专注 / 勿扰 */
+export type AppMode = "companion" | "focus" | "doNotDisturb";
+/** 设置窗口主题：跟随系统 / 浅色 / 深色 */
+export type ThemeMode = "system" | "light" | "dark";
+/** 本地待办项 */
+export interface Task {
+  id: string;
+  title: string;
+  note: string;
+  dueAt: string | null;
+  completed: boolean;
+  createdAt: number;
+  completedAt: number | null;
+}
+/** 番茄钟配置与当前状态 */
+export interface FocusConfig {
+  focusMinutes: number;
+  shortBreakMinutes: number;
+  longBreakMinutes: number;
+  roundsBeforeLongBreak: number;
+  taskId: string | null;
+  running: boolean;
+  paused: boolean;
+  phase: "focus" | "shortBreak" | "longBreak";
+  round: number;
+  endsAt: number | null;
+}
 
 /** 一个可播放动作（内置或自定义），一个文件 = 一个动作 */
 export interface AssetItem {
@@ -37,6 +64,10 @@ export interface ReminderConfig {
 }
 
 export interface AppConfig {
+  /** 配置格式版本，用于升级迁移 */
+  configVersion: number;
+  /** 最近一次成功保存的修订号 */
+  revision: number;
   activeCharacter: CharacterKey;
   /** 每个角色选定的头像素材 id（null = 用默认内置头像）；用于右键菜单弹框与总览头像 */
   avatarIds: Record<CharacterKey, string | null>;
@@ -56,10 +87,26 @@ export interface AppConfig {
   idleIntervalMs: number;
   /** 切换频率的显示单位（秒 / 分 / 小时）；仅设置页换算显示用，idleIntervalMs 始终为毫秒 */
   idleIntervalUnit: IntervalUnit;
+  /** 是否启用闲置时随机弹出的碎碎念预设短句 */
+  idleChatterEnabled: boolean;
   /** 开机自启（Windows 注册表 HKCU\Run 项；以注册表为准，此字段仅作镜像/回填） */
   autostart: boolean;
   /** 打开设置窗口时是否静默检查更新（仅提示，不自动下载安装） */
   autoCheckUpdate: boolean;
+  /** 当前桌宠工作模式 */
+  appMode: AppMode;
+  /** 勿扰结束时间；null 表示持续开启或未启用 */
+  quietUntil: number | null;
+  /** 主题偏好 */
+  theme: ThemeMode;
+  /** 桌面交互行为 */
+  desktop: {
+    locked: boolean;
+    snapToEdge: boolean;
+    clickThrough: boolean;
+  };
+  /** 番茄钟配置与当前状态 */
+  focus: FocusConfig;
   /** 三类定时提醒的配置（久坐 / 喝水 / 下班） */
   reminders: Record<ReminderKind, ReminderConfig>;
 }
@@ -138,6 +185,8 @@ export function makeDefaultReminders(): Record<ReminderKind, ReminderConfig> {
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
+  configVersion: 2,
+  revision: 0,
   activeCharacter: "yier",
   avatarIds: { yier: null, bubu: null },
   hiddenBuiltins: { yier: [], bubu: [] },
@@ -148,8 +197,29 @@ export const DEFAULT_CONFIG: AppConfig = {
   singleActionIds: { yier: null, bubu: null },
   idleIntervalMs: 60000,
   idleIntervalUnit: "s",
+  idleChatterEnabled: true,
   autostart: false,
   autoCheckUpdate: true,
+  appMode: "companion",
+  quietUntil: null,
+  theme: "system",
+  desktop: {
+    locked: false,
+    snapToEdge: false,
+    clickThrough: false,
+  },
+  focus: {
+    focusMinutes: 25,
+    shortBreakMinutes: 5,
+    longBreakMinutes: 15,
+    roundsBeforeLongBreak: 4,
+    taskId: null,
+    running: false,
+    paused: false,
+    phase: "focus",
+    round: 1,
+    endsAt: null,
+  },
   reminders: makeDefaultReminders(),
 };
 
@@ -198,6 +268,8 @@ export interface SpeakPayload {
   closeMode?: ReminderCloseMode;
   /** 手动关闭时确认按钮的文案（缺省「知道了」） */
   confirmText?: string;
+  /** 触发来源，用于让主窗口同步播放互动动作 */
+  source?: "interaction" | "focus" | "rest" | "celebrate";
 }
 
 /** 主窗口定位完气泡窗口后，通知气泡窗口渲染并显示的载荷 */

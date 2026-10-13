@@ -31,6 +31,7 @@ export class AnimationScheduler {
   /** 顺序轮播的当前索引（作用于 idlePool 的可用子集） */
   private seqIndex = 0;
   private badIds = new Set<string>();
+  private interactionTimer: number | null = null;
 
   constructor(renderer: PetRenderer, character: CharacterKey, cfg: SchedulerConfig) {
     this.renderer = renderer;
@@ -47,6 +48,8 @@ export class AnimationScheduler {
   stop(): void {
     this.running = false;
     this.clearTimers();
+    if (this.interactionTimer !== null) window.clearTimeout(this.interactionTimer);
+    this.interactionTimer = null;
   }
 
   /** 窗口隐藏：暂停定时器（保留 running 状态） */
@@ -75,6 +78,28 @@ export class AnimationScheduler {
       // 随机 / 顺序：仅间隔变化 → 用新间隔重排下一次（不立即换造型）
       this.scheduleNext();
     }
+  }
+
+  /** 播放一次互动动作，结束后回到当前待机状态；素材缺少专用标签时回退到可用待机动作。 */
+  playInteraction(kind: "pet" | "focus" | "rest" | "celebrate"): void {
+    if (!this.running || this.dragging) return;
+    const keywords: Record<string, string[]> = {
+      pet: ["poke", "hug", "kiss", "peck", "hi", "clap"],
+      focus: ["work", "read", "desk", "book"],
+      rest: ["sleep", "doze", "quilt", "cuddle"],
+      celebrate: ["cheer", "rose", "sugar", "giverose"],
+    };
+    const hit = this.idlePool.filter((item) => keywords[kind].some((word) => item.id.toLowerCase().includes(word)));
+    const item = this.randomFrom(hit.length ? hit : this.idlePool, this.lastIdleId);
+    if (!item) return;
+    this.clearTimers();
+    this.renderer.show(item);
+    if (this.interactionTimer !== null) window.clearTimeout(this.interactionTimer);
+    this.interactionTimer = window.setTimeout(() => {
+      this.interactionTimer = null;
+      if (this.running && !this.dragging) this.restoreIdle();
+      this.scheduleNext();
+    }, kind === "focus" || kind === "rest" ? 5000 : 2600);
   }
 
   async setCharacter(character: CharacterKey): Promise<void> {

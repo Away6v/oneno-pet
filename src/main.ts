@@ -27,7 +27,10 @@ import {
   onCountdownQuery,
 } from "./core/bus";
 import { refreshCustomAssets, setHiddenBuiltins } from "./core/assetManager";
-import { createReminderScheduler, type ReminderScheduler } from "./core/reminders";
+import {
+  createReminderScheduler,
+  type ReminderScheduler,
+} from "./core/reminders";
 import { autoCheckDue, markAutoChecked, probeUpdate } from "./core/updater";
 import type { AppConfig, FanSide, SpeakPayload } from "./types";
 
@@ -38,6 +41,8 @@ const win = getCurrentWindow();
 let speechState: "idle" | "auto" | "manual" = "idle";
 // 定时提醒调度器（在 main() 中创建后接入；配置变更时热更新）
 let reminders: ReminderScheduler | null = null;
+// 菜单 / 气泡窗口发起互动时，由主窗口统一驱动当前动画调度器。
+let interactionHandler: ((source: NonNullable<SpeakPayload["source"]>) => void) | null = null;
 // 下班倒计时面板：当前是否显示 + 目标下班时间（复用 reminders.offwork.atTime，随配置热更新）。
 // 面板是独立于气泡的另一个窗口，状态统一由本窗口（常驻的主窗口）持有。
 let countdownOpen = false;
@@ -100,6 +105,16 @@ async function main(): Promise<void> {
     singleActionId: config.singleActionIds[config.activeCharacter],
   });
   await scheduler.start();
+  interactionHandler = (source) => scheduler.playInteraction(source === "interaction" ? "pet" : source);
+  await applyDesktopOptions(config);
+
+  const safeSave = async (): Promise<void> => {
+    try {
+      await saveConfig(config);
+    } catch (error) {
+      console.error("桌宠配置保存失败:", error);
+    }
+  };
 
   // 左键：按住拖动窗口；拖动时切到「拖拽」造型并保持到松手（单击无动作）
   let dragging = false;
@@ -108,10 +123,10 @@ async function main(): Promise<void> {
   const settlePosition = async (): Promise<void> => {
     const clamped = await clampToWorkArea();
     if (clamped) config.petPosition = clamped;
-    void saveConfig(config);
+    void safeSave();
   };
 
-  new DragController(win, root, {
+  const dragController = new DragController(win, root, {
     onDragStart: () => {
       dragging = true;
       scheduler.showDrag();
@@ -124,7 +139,13 @@ async function main(): Promise<void> {
       scheduler.endDrag();
       void settlePosition();
     },
+    onClick: () => {
+      if (config.appMode === "doNotDisturb") return;
+      scheduler.playInteraction("pet");
+      void showSpeech({ text: "摸摸收到啦～", durationMs: 1600 });
+    },
   });
+  dragController.setEnabled(!config.desktop.locked);
 
   // 恢复上次位置（越界则回到屏幕中央）
   await restorePosition(config);
@@ -143,7 +164,7 @@ async function main(): Promise<void> {
     if (saveTimer !== null) window.clearTimeout(saveTimer);
     // 拖拽中：仅记录坐标、绝不 clamp（避免定时触发挪动窗口打断拖拽）；结束时再统一收回工作区
     saveTimer = window.setTimeout(() => {
-      if (dragging) void saveConfig(config);
+      if (dragging) void safeSave();
       else void settlePosition();
     }, 400);
   });
@@ -159,7 +180,7 @@ async function main(): Promise<void> {
     }
   });
 
-  // 配置变更：切角色 / 改尺寸 / 改透明度 / 改间隔 / 改动作模式 / 改单一动作造型
+  // 配置变更：切角色 / 改尺寸 / 改透明度 / 改间隔 / 改动作模式 / 改单一动作造型 / 改碎碎念开关
   await onConfigChanged(async (next) => {
     const charChanged = next.activeCharacter !== config.activeCharacter;
     const sizeChanged = next.petSize !== config.petSize;
@@ -167,13 +188,20 @@ async function main(): Promise<void> {
     const hiddenChanged =
       JSON.stringify(next.hiddenBuiltins) !==
       JSON.stringify(config.hiddenBuiltins);
+    const modeChanged = next.appMode !== config.appMode;
     config = { ...config, ...next };
     setHiddenBuiltins(config.hiddenBuiltins);
+    await applyDesktopOptions(config);
+    dragController.setEnabled(!config.desktop.locked);
     scheduler.setConfig({
       idleIntervalMs: config.idleIntervalMs,
       mode: config.behaviorMode,
       singleActionId: config.singleActionIds[config.activeCharacter],
     });
+    if (modeChanged) {
+      if (config.appMode === "focus") scheduler.playInteraction("focus");
+      else if (config.appMode === "doNotDisturb") scheduler.playInteraction("rest");
+    }
     if (opacityChanged) applyOpacity(root, config.petOpacity);
     if (sizeChanged) {
       renderer.setSize(config.petSize);
@@ -182,7 +210,7 @@ async function main(): Promise<void> {
       const clamped = await clampToWorkArea();
       if (clamped) {
         config.petPosition = clamped;
-        void saveConfig(config);
+        void safeSave();
       }
     }
     if (charChanged) await scheduler.setCharacter(config.activeCharacter);
@@ -209,11 +237,17 @@ async function main(): Promise<void> {
   setupCountdownCoordinator();
 
   // 定时提醒：久坐 / 喝水 / 下班。弹窗走 showSpeech，未弹成功（桌宠隐藏 / 手动会话框未关）则下个 tick 重试
-  reminders = createReminderScheduler((payload) => showSpeech(payload));
+  reminders = createReminderScheduler((payload) => {
+    if (config.appMode === "doNotDisturb" || config.appMode === "focus") return Promise.resolve(false);
+    return showSpeech(payload);
+  });
   reminders.setConfig(config);
 
   // 闲置碎碎念：空闲时随机间隔弹一句（气泡由独立 speech 窗口渲染）
-  startIdleChatter(() => dragging);
+  startIdleChatter(
+    () => dragging,
+    () => config.idleChatterEnabled && config.appMode === "companion",
+  );
 
   // 启动后台静默检查更新（延迟一会儿，避开启动瞬间的窗口 / 素材加载）
   window.setTimeout(
@@ -225,6 +259,16 @@ async function main(): Promise<void> {
 async function applyWindowSize(size: number): Promise<void> {
   const edge = Math.round(size + WINDOW_PADDING);
   await win.setSize(new LogicalSize(edge, edge));
+}
+
+/** 应用锁定与点击穿透；这两个选项由主窗口统一控制，避免附属窗口状态不一致。 */
+async function applyDesktopOptions(config: AppConfig): Promise<void> {
+  try {
+    await win.setIgnoreCursorEvents(config.desktop.clickThrough);
+  } catch (error) {
+    console.error("设置点击穿透失败:", error);
+  }
+  document.body.classList.toggle("is-locked", config.desktop.locked);
 }
 
 // 应用桌宠不透明度：作用于容器（图片自身的 opacity 用于交叉淡入，勿覆盖）
@@ -442,7 +486,10 @@ async function showSpeech(payload: SpeakPayload): Promise<boolean> {
 // 监听任意窗口发起的 speak（程序事件通知 API）；本窗口自身的碎碎念直接调用 showSpeech，
 // 不依赖 emit 是否会回投到发起窗口。
 function setupSpeechCoordinator(): void {
-  void onSpeak((payload) => void showSpeech(payload));
+  void onSpeak((payload) => {
+    if (payload.source) interactionHandler?.(payload.source);
+    void showSpeech(payload);
+  });
   // 气泡收起（自动到时 / 手动点确认 / 拖拽或隐藏时被强制收起）→ 解除等待态
   void onSpeakClosed(() => {
     speechState = "idle";
@@ -461,7 +508,10 @@ function broadcastCountdownState(): void {
   void emitCountdownState({ open: countdownOpen, atTime: countdownAtTime });
 }
 
-async function computeCountdownPlacement(): Promise<{ x: number; y: number } | null> {
+async function computeCountdownPlacement(): Promise<{
+  x: number;
+  y: number;
+} | null> {
   try {
     const pp = await win.outerPosition();
     const ps = await win.outerSize();
@@ -658,12 +708,25 @@ const CHATTER_PHRASES = [
   "累了就歇一会儿，我等你。",
   "专注的你，超棒的！",
   "记得喝口水，休息一下下～",
+  "嘿，我来陪你发会儿呆～",
+  "今天有没有遇到一点点开心的事？",
+  "慢慢来，事情会一件件做完的。",
+  "窗外的天气怎么样呀？",
+  "忙完这阵，我们一起放松一下吧～",
+  "你的每一点进步，我都有看见哦。",
+  "不赶时间的话，深呼吸一下吧。",
+  "想听你分享今天的小故事～",
+  "就算什么都不做，我也会陪着你。",
+  "现在的心情，像什么颜色呢？",
 ];
-const CHATTER_MIN_MS = 45000;
-const CHATTER_MAX_MS = 90000;
+const CHATTER_MIN_MS = 60000;
+const CHATTER_MAX_MS = 60000 * 5;
 
-// 每隔 CHATTER_MIN~MAX 毫秒随机挑一句(不与上次重复)；isBusy() 为真(拖拽)或窗口隐藏时跳过
-function startIdleChatter(isBusy: () => boolean): void {
+// 每隔 CHATTER_MIN~MAX 毫秒随机挑一句(不与上次重复)；忙碌、关闭开关或窗口隐藏时跳过
+function startIdleChatter(
+  isBusy: () => boolean,
+  isEnabled: () => boolean,
+): void {
   let last = -1;
   const pick = (): string => {
     let i = Math.floor(Math.random() * CHATTER_PHRASES.length);
@@ -675,7 +738,8 @@ function startIdleChatter(isBusy: () => boolean): void {
     const delay =
       CHATTER_MIN_MS + Math.random() * (CHATTER_MAX_MS - CHATTER_MIN_MS);
     window.setTimeout(() => {
-      if (!isBusy() && !document.hidden) void showSpeech({ text: pick() });
+      if (isEnabled() && !isBusy() && !document.hidden)
+        void showSpeech({ text: pick() });
       next();
     }, delay);
   };

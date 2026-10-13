@@ -29,6 +29,7 @@ export class DragController {
   private startY = 0;
   private pressing = false;
   private dragging = false;
+  private enabled = true;
 
   constructor(win: Window, el: HTMLElement, callbacks: DragCallbacks) {
     this.win = win;
@@ -39,8 +40,18 @@ export class DragController {
     window.addEventListener("mouseup", this.onUp);
   }
 
+  /** 桌宠锁定时禁用拖动，但保留点击反馈。 */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+  }
+
   private onDown = (e: MouseEvent): void => {
     if (e.button !== 0) return; // 仅左键
+    if (!this.enabled) {
+      this.pressing = false;
+      this.cb.onClick?.();
+      return;
+    }
     // 上一次拖拽若因原生拖动吞掉释放事件而未收尾，这里先补一次结束，避免状态残留
     if (this.dragging) this.finishDrag();
     this.pressing = true;

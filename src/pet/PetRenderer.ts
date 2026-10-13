@@ -10,6 +10,7 @@ export class PetRenderer {
   private currentId: string | null = null;
   private onErrorCb: ((item: AssetItem) => void) | null = null;
   private preloaded = new Set<string>();
+  private requestId = 0;
 
   constructor(a: HTMLImageElement, b: HTMLImageElement) {
     this.imgs = [a, b];
@@ -44,16 +45,20 @@ export class PetRenderer {
   /** 展示某素材；预载完成后交叉淡入到后台缓冲并交换 */
   show(item: AssetItem): void {
     if (item.id === this.currentId) return;
+    const requestId = ++this.requestId;
     const backIndex = this.front === 0 ? 1 : 0;
     const back = this.imgs[backIndex];
 
     const loader = new Image();
     loader.onload = () => {
+      // 快速切换时，旧素材的异步加载结果不能覆盖最新选择。
+      if (requestId !== this.requestId) return;
       back.src = item.src;
       this.currentId = item.id;
       this.swap();
     };
     loader.onerror = () => {
+      if (requestId !== this.requestId) return;
       console.warn("素材加载失败，跳过:", item.src);
       this.onErrorCb?.(item);
     };
