@@ -1,7 +1,7 @@
 {
   "name": "oneno-pet",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "oneno 桌宠 — 一二 / 布布 桌面宠物 (Tauri v2 + Vite + TypeScript)",
   "scripts": {
