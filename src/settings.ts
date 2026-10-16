@@ -28,6 +28,9 @@ import {
 import {
   ALLOWED_EXTENSIONS,
   DEFAULT_CONFIG,
+  DEFAULT_CHATTER_PHRASES,
+  CHATTER_PHRASE_MAX,
+  CHATTER_PHRASES_MAX,
   CHARACTER_NAMES,
   CHARACTER_DESC,
   AUTHORS,
@@ -496,6 +499,10 @@ function syncControls(): void {
 
   const chatter = byId<HTMLInputElement>("rm-chatter-enabled");
   chatter.checked = config.idleChatterEnabled;
+  // 台词编辑框回填（一行一句）+ 随启用开关折叠
+  byId<HTMLTextAreaElement>("rm-chatter-phrases").value =
+    config.chatterPhrases.join("\n");
+  applyChatterCollapse(config.idleChatterEnabled);
 
   // 提醒：启用开关 / 间隔（或时间点）/ 关闭方式 / 文案
   for (const kind of REMINDER_KINDS) {
@@ -1081,14 +1088,23 @@ function describeUpdateError(e: unknown): string {
 // 久坐与喝水为「间隔型」，下班为「每日定时型」；三者的会话框都可选自动关闭或手动关闭。
 // 注意：处理函数里一律现读 config.reminders[kind]，不要在外层捕获引用——「恢复默认」会整体替换 config。
 function bindReminders(): void {
-  // 碎碎念开关：关闭后保留预设短句，仅停止闲置时自动弹出
+  // 碎碎念开关：关闭后停止闲置时自动弹出，并折叠台词编辑框（台词保留）
   byId<HTMLInputElement>("rm-chatter-enabled").addEventListener(
     "change",
     async (e) => {
       config.idleChatterEnabled = (e.target as HTMLInputElement).checked;
+      applyChatterCollapse(config.idleChatterEnabled);
       await persist();
     },
   );
+
+  // 台词编辑框：失焦时拆行清洗后落盘，并回填清洗结果（去掉空行 / 超长截断 / 超量截断）
+  const phrasesInput = byId<HTMLTextAreaElement>("rm-chatter-phrases");
+  phrasesInput.addEventListener("change", async () => {
+    config.chatterPhrases = parseChatterPhrases(phrasesInput.value);
+    phrasesInput.value = config.chatterPhrases.join("\n");
+    await persist();
+  });
 
   for (const kind of REMINDER_KINDS) {
     const enabled = byId<HTMLInputElement>(`rm-${kind}-enabled`);
@@ -1199,6 +1215,25 @@ function applyReminderCollapse(kind: ReminderKind, enabled: boolean): void {
   document
     .querySelectorAll<HTMLElement>(`[id^="rm-${kind}-row-"]`)
     .forEach((el) => el.classList.toggle("is-collapsed", !enabled));
+}
+
+/** 碎碎念关闭时折叠台词编辑行（与提醒行折叠同一套 is-collapsed 写法） */
+function applyChatterCollapse(enabled: boolean): void {
+  byId("rm-chatter-row-phrases").classList.toggle("is-collapsed", !enabled);
+}
+
+/**
+ * 把台词文本域的内容拆成台词数组：按行切分、逐条 trim、丢弃空行、单条限长、总条数限上限。
+ * 清洗规则与 config.ts 的 normalizeChatterPhrases 保持一致；结果为空时回退默认台词。
+ */
+function parseChatterPhrases(raw: string): string[] {
+  const out: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const text = line.trim().slice(0, CHATTER_PHRASE_MAX);
+    if (text) out.push(text);
+    if (out.length >= CHATTER_PHRASES_MAX) break;
+  }
+  return out.length ? out : [...DEFAULT_CHATTER_PHRASES];
 }
 
 // ── 素材库：选人物 / 类型筛选 / 上传 ──────────
@@ -1544,6 +1579,7 @@ function bindReset(): void {
       avatarIds: { yier: null, bubu: null },
       hiddenBuiltins: { yier: [], bubu: [] },
       singleActionIds: { yier: null, bubu: null },
+      chatterPhrases: [...DEFAULT_CHATTER_PHRASES], // 深重建，避免与 DEFAULT_CONFIG.chatterPhrases 共享引用
       autostart: config.autostart,
       reminders: makeDefaultReminders(), // 深重建，避免与 DEFAULT_CONFIG.reminders 共享引用
     };

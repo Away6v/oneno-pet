@@ -802,6 +802,51 @@ input.rm-text:focus {
   background: #fff;
 }
 
+/* 碎碎念台词编辑：整行堆叠（标签在上、文本框在下），多行文本域铺满卡片宽度 */
+.opt-row--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.opt-row--stack .opt-label {
+  flex: none;
+}
+
+textarea.rm-phrases {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 108px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fcfaf6;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+textarea.rm-phrases:hover {
+  border-color: var(--accent);
+}
+textarea.rm-phrases:focus {
+  outline: none;
+  border-color: var(--accent-dark);
+  box-shadow: 0 0 0 3px var(--tint);
+  background: #fff;
+}
+textarea.rm-phrases::placeholder {
+  color: #b3a294;
+}
+
+.rm-phrases-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 /* 提醒：时间点（时 : 分）—— 两个窄输入框替代原生 time 控件：
    Chromium 内置的时间选择面板样式无法用 CSS 定制，会与整体 UI 脱节。
    必须写在基座之后 —— input.rm-num 与 input[type="text"] 特异性同为 (0,1,1)，靠源码顺序取胜。 */
@@ -1276,6 +1321,17 @@ input.rm-num {
   background: #3b302c;
 }
 
+:root[data-theme="dark"] textarea.rm-phrases {
+  background: #332b28;
+}
+:root[data-theme="dark"] textarea.rm-phrases:focus {
+  background: #3b302c;
+}
+:root[data-theme="dark"] textarea.rm-phrases::placeholder {
+  color: #c7b7ab;
+  opacity: 1;
+}
+
 :root[data-theme="dark"] input[type="number"]::placeholder,
 :root[data-theme="dark"] input[type="text"]::placeholder,
 :root[data-theme="dark"] input.rm-text::placeholder {
@@ -1291,6 +1347,13 @@ input.rm-num {
 :root[data-theme="dark"] .btn-ghost:hover {
   background: #3b302c;
   color: #ffd6c1;
+}
+
+/* 分段控件容器底色：浅色主题为纯白（与卡片同色，仅靠描边区分）；
+   深色主题必须换成暗色 —— 否则整块 .seg 会在暗色卡片上突出一块白底，
+   叠在上面的浅色文字（#d2c1b6）几乎看不清，选中的浅桃色药丸也与白底糊在一起。 */
+:root[data-theme="dark"] .seg {
+  background: #332b28;
 }
 
 :root[data-theme="dark"] .seg-btn {

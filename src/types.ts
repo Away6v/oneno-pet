@@ -71,6 +71,8 @@ export interface AppConfig {
   idleIntervalUnit: IntervalUnit;
   /** 是否启用闲置时随机弹出的碎碎念预设短句 */
   idleChatterEnabled: boolean;
+  /** 闲置碎碎念的台词（一行一句）；可在设置页编辑，为空时回退 DEFAULT_CHATTER_PHRASES */
+  chatterPhrases: string[];
   /** 开机自启（Windows 注册表 HKCU\Run 项；以注册表为准，此字段仅作镜像/回填） */
   autostart: boolean;
   /** 打开设置窗口时是否静默检查更新（仅提示，不自动下载安装） */
@@ -168,6 +170,31 @@ export function makeDefaultReminders(): Record<ReminderKind, ReminderConfig> {
   return out;
 }
 
+/** 闲置碎碎念的默认台词（一行一句）。设置页可编辑，清空时回退到这份默认。 */
+export const DEFAULT_CHATTER_PHRASES: string[] = [
+  "今天也要元气满满哦～",
+  "在忙什么呢？记得抬头看看远方～",
+  "我一直在这儿陪着你呀。",
+  "要不要伸个懒腰，动一动？",
+  "累了就歇一会儿，我等你。",
+  "记得喝口水，休息一下下～",
+  "嘿，我来陪你发会儿呆～",
+  "今天有没有遇到一点点开心的事？",
+  "慢慢来，事情会一件件做完的。",
+  "窗外的天气怎么样呀？",
+  "忙完这阵，我们一起放松一下吧～",
+  "你的每一点进步，我都有看见哦。",
+  "不赶时间的话，深呼吸一下吧。",
+  "想听你分享今天的小故事～",
+  "就算什么都不做，我也会陪着你。",
+  "现在的心情，像什么颜色呢？",
+];
+
+/** 单条碎碎念台词的长度上限（设置页与 normalize 共用同一口径） */
+export const CHATTER_PHRASE_MAX = 60;
+/** 碎碎念台词的条数上限 */
+export const CHATTER_PHRASES_MAX = 50;
+
 export const DEFAULT_CONFIG: AppConfig = {
   configVersion: 2,
   revision: 0,
@@ -182,6 +209,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   idleIntervalMs: 60000,
   idleIntervalUnit: "s",
   idleChatterEnabled: true,
+  // 独立数组：勿共享 DEFAULT_CHATTER_PHRASES 引用（normalize / 恢复默认都会重建）
+  chatterPhrases: [...DEFAULT_CHATTER_PHRASES],
   autostart: false,
   autoCheckUpdate: true,
   allowDevTools: false,

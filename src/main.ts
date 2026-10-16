@@ -32,6 +32,7 @@ import {
   type ReminderScheduler,
 } from "./core/reminders";
 import { autoCheckDue, markAutoChecked, probeUpdate } from "./core/updater";
+import { DEFAULT_CHATTER_PHRASES } from "./types";
 import type { AppConfig, FanSide, SpeakPayload } from "./types";
 
 const win = getCurrentWindow();
@@ -242,10 +243,11 @@ async function main(): Promise<void> {
   });
   reminders.setConfig(config);
 
-  // 闲置碎碎念：空闲时随机间隔弹一句（气泡由独立 speech 窗口渲染）
+  // 闲置碎碎念：空闲时随机间隔弹一句（台词取自 config，气泡由独立 speech 窗口渲染）
   startIdleChatter(
     () => dragging,
     () => config.idleChatterEnabled && config.appMode === "companion",
+    () => config.chatterPhrases,
   );
 
   // 启动后台静默检查更新（延迟一会儿，避开启动瞬间的窗口 / 素材加载）
@@ -698,46 +700,42 @@ async function checkUpdateOnStartup(autoCheckUpdate: boolean): Promise<void> {
   }
 }
 
-// 闲置碎碎念预设短句（暖棕友好风）
-const CHATTER_PHRASES = [
-  "今天也要元气满满哦～",
-  "在忙什么呢？记得抬头看看远方～",
-  "我一直在这儿陪着你呀。",
-  "要不要伸个懒腰，动一动？",
-  "累了就歇一会儿，我等你。",
-  "记得喝口水，休息一下下～",
-  "嘿，我来陪你发会儿呆～",
-  "今天有没有遇到一点点开心的事？",
-  "慢慢来，事情会一件件做完的。",
-  "窗外的天气怎么样呀？",
-  "忙完这阵，我们一起放松一下吧～",
-  "你的每一点进步，我都有看见哦。",
-  "不赶时间的话，深呼吸一下吧。",
-  "想听你分享今天的小故事～",
-  "就算什么都不做，我也会陪着你。",
-  "现在的心情，像什么颜色呢？",
-];
+// 闲置碎碎念：间隔范围；台词不再写死在这里，取自 config.chatterPhrases（设置页可编辑），
+// 为空时回退 DEFAULT_CHATTER_PHRASES。
 const CHATTER_MIN_MS = 60000;
 const CHATTER_MAX_MS = 60000 * 5;
 
-// 每隔 CHATTER_MIN~MAX 毫秒随机挑一句(不与上次重复)；忙碌、关闭开关或窗口隐藏时跳过
+// 每隔 CHATTER_MIN~MAX 毫秒随机挑一句(不与上次重复)；忙碌、关闭开关或窗口隐藏时跳过。
+// 每次弹出前现读台词，故设置页改完即时生效、无需重启。
 function startIdleChatter(
   isBusy: () => boolean,
   isEnabled: () => boolean,
+  getPhrases: () => string[],
 ): void {
-  let last = -1;
+  // 记住「上一句文案本身」而非索引：用户增删台词后也不会错位，去重依旧可靠
+  let last = "";
   const pick = (): string => {
-    let i = Math.floor(Math.random() * CHATTER_PHRASES.length);
-    if (i === last) i = (i + 1) % CHATTER_PHRASES.length;
-    last = i;
-    return CHATTER_PHRASES[i];
+    const configured = getPhrases();
+    const phrases = configured.length ? configured : DEFAULT_CHATTER_PHRASES;
+    if (phrases.length === 0) return "";
+    if (phrases.length === 1) return phrases[0];
+    let text = phrases[Math.floor(Math.random() * phrases.length)];
+    let guard = 0;
+    while (text === last && guard < 8) {
+      text = phrases[Math.floor(Math.random() * phrases.length)];
+      guard++;
+    }
+    last = text;
+    return text;
   };
   const next = (): void => {
     const delay =
       CHATTER_MIN_MS + Math.random() * (CHATTER_MAX_MS - CHATTER_MIN_MS);
     window.setTimeout(() => {
-      if (isEnabled() && !isBusy() && !document.hidden)
-        void showSpeech({ text: pick() });
+      if (isEnabled() && !isBusy() && !document.hidden) {
+        const text = pick();
+        if (text) void showSpeech({ text });
+      }
       next();
     }, delay);
   };

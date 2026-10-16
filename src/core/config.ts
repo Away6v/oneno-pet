@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
   DEFAULT_CONFIG,
+  DEFAULT_CHATTER_PHRASES,
+  CHATTER_PHRASE_MAX,
+  CHATTER_PHRASES_MAX,
   REMINDER_INTERVAL_MAX_MS,
   REMINDER_INTERVAL_MIN_MS,
   REMINDER_KINDS,
@@ -130,6 +133,11 @@ export function normalize(raw: Partial<AppConfig>): AppConfig {
       ? rawChatter
       : DEFAULT_CONFIG.idleChatterEnabled;
 
+  // 碎碎念台词：清洗为全新数组（勿共享 DEFAULT_CONFIG.chatterPhrases 引用），空则回退默认
+  cfg.chatterPhrases = normalizeChatterPhrases(
+    (raw as Record<string, unknown>).chatterPhrases,
+  );
+
   // 丢弃旧的区间字段（当前 AppConfig 已移除，显式声明为可选后再删除），避免残留在持久化配置里
   const cleaned = cfg as AppConfig & { idleMinMs?: number; idleMaxMs?: number };
   delete cleaned.idleMinMs;
@@ -216,4 +224,22 @@ function normalizeReminders(
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * 清洗碎碎念台词：仅接受字符串，逐条 trim、丢弃空行、单条限长、总条数限上限。
+ * 结果为空（字段缺失 / 全部非法 / 用户清空）时回退到默认台词 —— 与提醒文案「留空回退默认」一致，
+ * 保证桌宠不会因为清空而突然不吭声。
+ * 返回的始终是全新数组，调用方可安全持有 / 就地改写。
+ */
+function normalizeChatterPhrases(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [...DEFAULT_CHATTER_PHRASES];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const text = item.trim().slice(0, CHATTER_PHRASE_MAX);
+    if (text) out.push(text);
+    if (out.length >= CHATTER_PHRASES_MAX) break;
+  }
+  return out.length ? out : [...DEFAULT_CHATTER_PHRASES];
 }
