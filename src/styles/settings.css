@@ -1363,3 +1363,8 @@ input.rm-num {
 :root[data-theme="dark"] .seg-btn.is-active {
   color: #2b211d;
 }
+
+/* 标题栏窗口按钮：hover 底色原本写死成浅色 #efe4d6，深色主题下是一块突兀的浅色块，换成暗色。 */
+:root[data-theme="dark"] .win-btn:hover {
+  background: #3b302c;
+}
