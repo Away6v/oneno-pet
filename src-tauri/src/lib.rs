@@ -8,6 +8,13 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
+#[cfg(windows)]
+#[derive(Default)]
+struct DevtoolsState {
+    enabled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    registered: tauri::async_runtime::Mutex<std::collections::HashSet<String>>,
+}
+
 /// 自定义素材记录（写入 manifest.json）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CustomAsset {
@@ -87,7 +94,14 @@ fn save_config(app: AppHandle, config: Value) -> Result<(), String> {
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let p = dir.join("config.json");
     let raw = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    atomic_write(&p, raw.as_bytes())
+    atomic_write(&p, raw.as_bytes())?;
+    // 所有配置保存入口都同步权限，恢复默认时也立即禁用 F12。
+    #[cfg(windows)]
+    app.state::<DevtoolsState>().enabled.store(
+        config["allowDevTools"].as_bool().unwrap_or(false),
+        std::sync::atomic::Ordering::SeqCst,
+    );
+    Ok(())
 }
 
 /// 使用同目录临时文件替换，避免进程中断时留下半份配置。
@@ -101,25 +115,6 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         let _ = fs::remove_file(path);
     }
     fs::rename(&tmp, path).map_err(|e| e.to_string())
-}
-
-/// 读取本地业务数据（待办与专注记录独立于桌宠配置）。
-#[tauri::command]
-fn load_productivity(app: AppHandle) -> Result<Option<Value>, String> {
-    let p = data_dir(&app)?.join("productivity.json");
-    if !p.exists() { return Ok(None); }
-    let raw = fs::read_to_string(&p).map_err(|e| e.to_string())?;
-    if raw.trim().is_empty() { return Ok(None); }
-    serde_json::from_str(&raw).map(Some).map_err(|e| e.to_string())
-}
-
-/// 保存本地业务数据，使用原子替换。
-#[tauri::command]
-fn save_productivity(app: AppHandle, data: Value) -> Result<(), String> {
-    let dir = data_dir(&app)?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let raw = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-    atomic_write(&dir.join("productivity.json"), raw.as_bytes())
 }
 
 /// 列出全部自定义素材，按角色分组：{ "yier": [...], "bubu": [...] }
@@ -247,7 +242,15 @@ mod autostart_impl {
             let data = format!("\"{exe}\"");
             let ok = Command::new("reg")
                 .args([
-                    "add", RUN_KEY, "/v", VALUE_NAME, "/t", "REG_SZ", "/d", data.as_str(), "/f",
+                    "add",
+                    RUN_KEY,
+                    "/v",
+                    VALUE_NAME,
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    data.as_str(),
+                    "/f",
                 ])
                 .creation_flags(CREATE_NO_WINDOW)
                 .status()
@@ -318,13 +321,12 @@ fn toggle_main(app: &AppHandle) {
 
 /// 创建系统托盘图标：
 /// - 左键点击 → 切换桌宠显隐
-/// - 右键菜单 → 显示/隐藏、设置、退出（桌宠隐藏后仍可通过它操作）
+/// - 右键菜单 → 显示/隐藏、退出（桌宠隐藏后仍可通过它操作）
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let toggle_i = MenuItem::with_id(app, "toggle", "显示 / 隐藏桌宠", true, None::<&str>)?;
-    let settings_i = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
+    let toggle_i = MenuItem::with_id(app, "toggle", "显示 / 隐藏", true, None::<&str>)?;
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle_i, &settings_i, &sep, &quit_i])?;
+    let menu = Menu::with_items(app, &[&toggle_i, &sep, &quit_i])?;
 
     let mut builder = TrayIconBuilder::with_id("main-tray")
         .tooltip("oneno 桌宠")
@@ -332,7 +334,6 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "toggle" => toggle_main(app),
-            "settings" => show_window(app, "settings"),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -462,6 +463,102 @@ fn open_url(url: String) -> Result<(), String> {
     }
 }
 
+/// 注册原生 F12 快捷键；不依赖前端页面加载成功
+#[cfg(windows)]
+async fn register_devtools_shortcut(app: &AppHandle) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    use webview2_com::AcceleratorKeyPressedEventHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
+        COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS,
+    };
+
+    let state = app.state::<DevtoolsState>();
+    // 启动和设置页可能同时调用，串行注册，避免一次按键触发多个回调。
+    let mut registered = state.registered.lock().await;
+    for window in app.webview_windows().values() {
+        let label = window.label().to_owned();
+        if registered.contains(&label) {
+            continue;
+        }
+        let allowed = state.enabled.clone();
+        let target = window.clone();
+        let (sender, mut receiver) = tauri::async_runtime::channel(1);
+        window
+            .with_webview(move |webview| unsafe {
+                let result = (|| -> Result<(), String> {
+                    let controller = webview.controller();
+                    let core = controller.CoreWebView2().map_err(|e| e.to_string())?;
+                    // 禁用浏览器内置入口，由应用按开关状态主动打开，避免默认快捷键冲突。
+                    core.Settings()
+                        .and_then(|s| s.SetAreDevToolsEnabled(false))
+                        .map_err(|e| e.to_string())?;
+                    let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
+                        let Some(args) = args else { return Ok(()) };
+                        let mut key = 0;
+                        args.VirtualKey(&mut key)?;
+                        // F12 的 Windows 虚拟键码。
+                        if key != 0x7B {
+                            return Ok(());
+                        }
+                        args.SetHandled(true)?;
+                        let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
+                        args.KeyEventKind(&mut kind)?;
+                        let mut status = COREWEBVIEW2_PHYSICAL_KEY_STATUS::default();
+                        args.PhysicalKeyStatus(&mut status)?;
+                        if (kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
+                            || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN)
+                            && !status.WasKeyDown.as_bool()
+                            && allowed.load(Ordering::SeqCst)
+                        {
+                            let target = target.clone();
+                            let allowed = allowed.clone();
+                            // 按键回调结束后再打开窗口，避免 WebView2 同步回调中的重入。
+                            tauri::async_runtime::spawn(async move {
+                                if allowed.load(Ordering::SeqCst) {
+                                    target.open_devtools();
+                                }
+                            });
+                        }
+                        Ok(())
+                    }));
+                    let mut token = 0;
+                    controller
+                        .add_AcceleratorKeyPressed(&handler, &mut token)
+                        .map_err(|e| e.to_string())?;
+                    Ok(())
+                })();
+                let _ = sender.try_send(result);
+            })
+            .map_err(|e| e.to_string())?;
+        // 等待原生回调的真实结果，不能只以消息投递成功作为设置成功。
+        receiver
+            .recv()
+            .await
+            .ok_or_else(|| format!("窗口 {label} 未完成 F12 注册"))??;
+        registered.insert(label);
+    }
+    Ok(())
+}
+
+/// 注册成功后更新所有窗口共用的权限
+#[cfg(windows)]
+#[tauri::command]
+async fn set_devtools_allowed(app: AppHandle, enabled: bool) -> Result<(), String> {
+    register_devtools_shortcut(&app).await?;
+    app.state::<DevtoolsState>()
+        .enabled
+        .store(enabled, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
+/// 非 Windows 平台空实现，保证命令在各平台都能注册
+#[cfg(not(windows))]
+#[tauri::command]
+fn set_devtools_allowed(_app: AppHandle, _enabled: bool) -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -476,6 +573,27 @@ pub fn run() {
         // 前端没有（也不需要）relaunch 可调。
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            #[cfg(windows)]
+            {
+                // 在原生启动阶段恢复权限，避免前端尚未加载或报错时 F12 无效。
+                let enabled = load_config(app.handle().clone())
+                    .unwrap_or_else(|error| {
+                        eprintln!("读取开发者工具配置失败: {error}");
+                        None
+                    })
+                    .and_then(|config| config["allowDevTools"].as_bool())
+                    .unwrap_or(false);
+                app.manage(DevtoolsState {
+                    enabled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(enabled)),
+                    ..Default::default()
+                });
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = register_devtools_shortcut(&handle).await {
+                        eprintln!("注册 F12 快捷键失败: {error}");
+                    }
+                });
+            }
             build_tray(app.handle())?;
             Ok(())
         })
@@ -483,13 +601,12 @@ pub fn run() {
             quit,
             load_config,
             save_config,
-            load_productivity,
-            save_productivity,
             list_custom_assets,
             add_custom_asset,
             remove_custom_asset,
             get_autostart,
             set_autostart,
+            set_devtools_allowed,
             raise_window,
             open_url
         ])

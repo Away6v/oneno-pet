@@ -140,9 +140,16 @@ export function normalize(raw: Partial<AppConfig>): AppConfig {
     cfg.petPosition = null;
   }
   cfg.autostart = Boolean(cfg.autostart);
+  cfg.allowDevTools = Boolean(cfg.allowDevTools);
 
   const mode = (raw as Record<string, unknown>).appMode;
-  cfg.appMode = mode === "focus" || mode === "doNotDisturb" ? mode : "companion";
+  cfg.appMode = mode === "doNotDisturb" ? mode : "companion";
+  const rawRightClickMenu = ((raw as Record<string, unknown>).rightClickMenu ?? {}) as Record<string, unknown>;
+  cfg.rightClickMenu = {
+    pet: typeof rawRightClickMenu.pet === "boolean" ? rawRightClickMenu.pet : DEFAULT_CONFIG.rightClickMenu.pet,
+    quiet: typeof rawRightClickMenu.quiet === "boolean" ? rawRightClickMenu.quiet : DEFAULT_CONFIG.rightClickMenu.quiet,
+    countdown: typeof rawRightClickMenu.countdown === "boolean" ? rawRightClickMenu.countdown : DEFAULT_CONFIG.rightClickMenu.countdown,
+  };
   const quietUntil = Number((raw as Record<string, unknown>).quietUntil);
   cfg.quietUntil = Number.isFinite(quietUntil) && quietUntil > 0 ? quietUntil : null;
   const theme = (raw as Record<string, unknown>).theme;
@@ -153,24 +160,8 @@ export function normalize(raw: Partial<AppConfig>): AppConfig {
     snapToEdge: Boolean(desktop.snapToEdge),
     clickThrough: Boolean(desktop.clickThrough),
   };
-  const focus = ((raw as Record<string, unknown>).focus ?? {}) as Record<string, unknown>;
-  const positiveInt = (value: unknown, fallback: number, max: number): number => {
-    const n = Math.floor(Number(value));
-    return Number.isFinite(n) && n > 0 ? Math.min(max, n) : fallback;
-  };
-  const phase = focus.phase;
-  cfg.focus = {
-    focusMinutes: positiveInt(focus.focusMinutes, DEFAULT_CONFIG.focus.focusMinutes, 120),
-    shortBreakMinutes: positiveInt(focus.shortBreakMinutes, DEFAULT_CONFIG.focus.shortBreakMinutes, 60),
-    longBreakMinutes: positiveInt(focus.longBreakMinutes, DEFAULT_CONFIG.focus.longBreakMinutes, 120),
-    roundsBeforeLongBreak: positiveInt(focus.roundsBeforeLongBreak, DEFAULT_CONFIG.focus.roundsBeforeLongBreak, 12),
-    taskId: typeof focus.taskId === "string" ? focus.taskId : null,
-    running: Boolean(focus.running),
-    paused: Boolean(focus.paused),
-    phase: phase === "shortBreak" || phase === "longBreak" ? phase : "focus",
-    round: positiveInt(focus.round, 1, 12),
-    endsAt: Number.isFinite(Number(focus.endsAt)) ? Number(focus.endsAt) : null,
-  };
+  // 旧版本的番茄钟字段不再写入新配置；旧的专注模式回落为陪伴模式。
+  delete (cfg as AppConfig & { focus?: unknown }).focus;
 
   // 提醒配置：重建为独立对象（勿共享 DEFAULT_CONFIG.reminders 引用，否则设置页改写会污染默认值）
   cfg.reminders = normalizeReminders(raw.reminders);

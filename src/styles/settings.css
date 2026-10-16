@@ -185,7 +185,27 @@ body {
 .nav {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  gap: 18px;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+}
+
+.nav-group--bottom {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.nav-group-title {
+  padding: 0 9px 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .nav-item {
@@ -242,13 +262,6 @@ body {
   color: #fff;
 }
 
-.nav-label {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.25;
-  min-width: 0;
-}
-
 .nav-title {
   font-weight: 600;
   font-size: 13.5px;
@@ -295,18 +308,12 @@ body {
 }
 
 .panel-head {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .panel-title {
   font-size: 19px;
   font-weight: 700;
-}
-
-.panel-sub {
-  margin-top: 2px;
-  font-size: 12.5px;
-  color: var(--muted);
 }
 
 /* 卡片 */
@@ -445,27 +452,111 @@ body {
   font-weight: 600;
 }
 
-/* 头像选择（取自该人物素材库） */
+/* 素材选择行只展示当前选中项，完整列表在弹框中浏览 */
 .opt-row--avatar {
-  align-items: flex-start;
+  align-items: center;
 }
 
-.opt-row--avatar .opt-label {
-  padding-top: 6px;
-}
-
-.avatar-picker {
+.asset-preview {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.asset-preview-trigger {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fcfaf6;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.asset-preview-trigger:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--tint);
+}
+
+.asset-preview-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.asset-preview-trigger:disabled {
+  cursor: default;
+}
+
+.asset-preview-trigger img {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 7px;
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+
+/* 弹框素材网格可滚动，素材数量增加时不再撑高设置页 */
+.asset-picker-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(31, 24, 20, 0.48);
+}
+
+.asset-picker-modal[hidden] {
+  display: none;
+}
+
+.asset-picker-dialog {
+  width: min(760px, 100%);
+  max-height: min(720px, 86vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg);
+  box-shadow: 0 18px 60px rgba(25, 18, 14, 0.24);
+}
+
+.asset-picker-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 12px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.asset-picker-head .card-title {
+  margin: 0;
+}
+
+.asset-picker-grid {
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  grid-auto-rows: 80px;
+  align-content: start;
   gap: 8px;
 }
 
 .avatar-opt {
   position: relative;
-  width: 54px;
-  height: 54px;
+  width: 100%;
+  height: 100%;
   padding: 0;
   border: 1.5px solid var(--line);
   border-radius: 10px;
@@ -479,8 +570,8 @@ body {
 }
 
 .avatar-opt img {
-  max-width: 84%;
-  max-height: 84%;
+  max-width: 82%;
+  max-height: 82%;
   object-fit: contain;
   -webkit-user-drag: none;
 }
@@ -500,6 +591,7 @@ body {
 }
 
 .avatar-empty {
+  grid-column: 1 / -1;
   color: var(--muted);
   font-size: 12px;
   padding: 8px 0;
@@ -524,10 +616,12 @@ body {
   gap: 2px;
 }
 
-.opt-note-inline {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--muted);
+.opt-row > .seg {
+  margin-left: auto;
+}
+
+.opt-row > .opt-val {
+  margin-left: auto;
 }
 
 .opt-val {
@@ -556,11 +650,6 @@ input[type="range"] {
 /* 按动作模式折叠隐藏的选项行（「指定动作」/「切换频率」） */
 .opt-row.is-collapsed {
   display: none;
-}
-
-/* 提醒：关闭方式分段控件贴右，与开关 / 间隔行位置一致 */
-.rm-seg {
-  margin-left: auto;
 }
 
 /* 开关（toggle） */
@@ -653,11 +742,6 @@ input[type="range"] {
 .seg--unit .seg-btn {
   padding: 6px 10px;
   min-width: 38px;
-}
-
-/* 行为卡片的动作模式分段控件贴右对齐（与原开关/间隔位置一致） */
-#behavior-mode {
-  margin-left: auto;
 }
 
 /* 表单基础控件 */
@@ -1161,20 +1245,6 @@ input.rm-num {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
-.focus-clock { display:flex; flex-direction:column; align-items:center; gap:4px; padding:18px 0 12px; }
-.focus-clock span:first-child { font-size:42px; font-weight:700; letter-spacing:.04em; color:var(--accent-dark); }
-.focus-clock span:last-child { color:var(--muted); }
-.focus-actions { display:flex; justify-content:center; gap:8px; }
-.focus-settings { display:flex; justify-content:center; gap:14px; margin-top:16px; color:var(--muted); }
-.focus-settings input { width:58px; margin-left:4px; }
-.card-title-row { display:flex; align-items:center; justify-content:space-between; }
-.task-add { display:flex; gap:8px; margin:12px 0; }
-.task-add input { flex:1; min-width:0; }
-.task-list { display:flex; flex-direction:column; gap:6px; max-height:230px; overflow:auto; }
-.task-item { display:flex; align-items:center; gap:8px; padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--tint); }
-.task-item.is-done { opacity:.55; text-decoration:line-through; }
-.task-item .task-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.task-delete { border:0; background:none; color:var(--danger); cursor:pointer; font-size:16px; }
 
 /* 深色主题的控件覆盖：避免沿用浅色背景导致文字对比度不足。 */
 :root[data-theme="dark"] .nav-item:hover {

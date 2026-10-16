@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # protocol-asset：允许 WebView 通过 asset: 协议加载磁盘上的自定义素材
 # tray-icon：系统托盘图标（隐藏桌宠后仍可显示 / 打开设置 / 退出）
-tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "devtools"] }
 tauri-plugin-dialog = "2"
 # single-instance：保证桌宠唯一。重复双击程序时第二个进程直接退出，
 # 并把启动参数转给已在跑的实例（由它把桌宠显示出来）
@@ -27,6 +27,9 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
 
 # 发布构建：体积/性能优化
 [profile.release]

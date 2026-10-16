@@ -39,8 +39,6 @@ const ICONS = {
   clock:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.4V12l3.1 1.9"/></svg>',
   heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 8.8c0 5.4-8.8 10.2-8.8 10.2S3.2 14.2 3.2 8.8A4.7 4.7 0 0 1 12 6.2a4.7 4.7 0 0 1 8.8 2.6Z"/></svg>',
-  focus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.8"/><path d="M12 8v4l2.8 1.8M4 4l2 2m14-2-2 2"/></svg>',
-  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>',
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 15.5A8.7 8.7 0 0 1 8.5 4 8.7 8.7 0 1 0 20 15.5Z"/></svg>',
   check: '<path d="M5 12.5 9.3 17 19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
 } as const;
@@ -50,8 +48,6 @@ const ICONS = {
 // ⚠️ 每个菜单项 id 必须唯一（含二级）——expand() 靠 id 匹配高亮父项/淡出其余项。
 const MENU: RadialItem[] = [
   { id: "pet", label: "摸摸", icon: ICONS.heart, action: interactPet },
-  { id: "focus", label: "专注", icon: ICONS.focus, action: toggleFocusMode },
-  { id: "todos", label: "待办", icon: ICONS.list, action: openProductivity },
   { id: "quiet", label: "勿扰", icon: ICONS.moon, action: toggleQuietMode },
   {
     id: "countdown",
@@ -250,11 +246,14 @@ function syncLabelHits(scope: ParentNode): void {
 function buildLevel1(): void {
   const layer = layerEl();
   layer.querySelectorAll(".node--l1").forEach((n) => n.remove());
-  const n = MENU.length;
+  const visibleItems = MENU.filter((item) =>
+    item.id === "settings" || current.rightClickMenu[item.id as keyof AppConfig["rightClickMenu"]],
+  );
+  const n = visibleItems.length;
   const total = n * L1_SPAN + (n - 1) * L1_GAP; // 扇形总角跨度
   const start = sideDeg(l1Side) - total / 2; // 扇形整体居中于当前朝向
   let html = "";
-  MENU.forEach((item, i) => {
+  visibleItems.forEach((item, i) => {
     const d1 = start + i * (L1_SPAN + L1_GAP);
     html += nodeMarkup(item, 1, d1, d1 + L1_SPAN, i * STAGGER, CX, CY);
   });
@@ -264,11 +263,11 @@ function buildLevel1(): void {
   syncLabelHits(layer); // 节点刚被重建，按实测文字盒重铺标签命中层
 }
 
-/** 根据当前工作模式高亮专注 / 勿扰菜单项，重新打开菜单时也能看出当前状态。 */
+/** 根据当前工作模式高亮勿扰菜单项，重新打开菜单时也能看出当前状态。 */
 function applyModeActive(): void {
   layerEl().querySelectorAll<SVGGElement>(".node--l1").forEach((node) => {
     const id = node.dataset.id;
-    node.classList.toggle("node--on", (id === "focus" && current?.appMode === "focus") || (id === "quiet" && current?.appMode === "doNotDisturb"));
+    node.classList.toggle("node--on", id === "quiet" && current?.appMode === "doNotDisturb");
   });
 }
 
@@ -435,35 +434,6 @@ function interactPet(): void {
   window.setTimeout(closeMenu, 180);
 }
 
-async function toggleFocusMode(): Promise<void> {
-  const starting = current.appMode !== "focus" || !current.focus.running;
-  const next: AppConfig = {
-    ...current,
-    appMode: starting ? "focus" : "companion",
-    focus: starting
-      ? {
-          ...current.focus,
-          running: true,
-          paused: false,
-          phase: "focus",
-          endsAt: Date.now() + current.focus.focusMinutes * 60_000,
-        }
-      : {
-          ...current.focus,
-          running: false,
-          paused: false,
-          endsAt: null,
-        },
-  };
-  await persistMenuConfig(next);
-  void emitSpeak({
-    text: starting ? `专注开始，接下来 ${next.focus.focusMinutes} 分钟我会安静陪着你。` : "专注结束，回到陪伴模式～",
-    durationMs: 2600,
-    source: starting ? "focus" : "interaction",
-  });
-  window.setTimeout(closeMenu, 180);
-}
-
 async function toggleQuietMode(): Promise<void> {
   const next: AppConfig = {
     ...current,
@@ -479,16 +449,6 @@ async function toggleQuietMode(): Promise<void> {
   window.setTimeout(closeMenu, 180);
 }
 
-async function openProductivity(): Promise<void> {
-  closeMenu();
-  const settings = await WebviewWindow.getByLabel("settings");
-  if (!settings) return;
-  await settings.show();
-  await settings.unminimize();
-  await settings.setFocus();
-  // 设置页读取该参数后直接打开“专注与待办”页。
-  await settings.emit("oneno-open-productivity");
-}
 /** 切换下班倒计时面板（面板的显隐与定位由主窗口统一管理，本窗口只发请求） */
 function toggleCountdown(): void {
   void emitCountdownToggle();
@@ -543,11 +503,13 @@ async function main(): Promise<void> {
     else closeMenu();
   });
 
-  // 角色 / 头像变更后同步中心头像
+  // 配置变更后同步中心头像，并按需更新快捷菜单
   await onConfigChanged(async (next) => {
+    const menuChanged = JSON.stringify(next.rightClickMenu) !== JSON.stringify(current.rightClickMenu);
     current = next;
     setHiddenBuiltins(current.hiddenBuiltins); // 同步内置隐藏，避免头像解析到已隐藏造型
     await render();
+    if (menuChanged) buildLevel1();
     applyModeActive();
   });
   // 自定义素材增删后刷新缓存并重绘

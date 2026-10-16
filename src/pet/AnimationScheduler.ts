@@ -81,11 +81,10 @@ export class AnimationScheduler {
   }
 
   /** 播放一次互动动作，结束后回到当前待机状态；素材缺少专用标签时回退到可用待机动作。 */
-  playInteraction(kind: "pet" | "focus" | "rest" | "celebrate"): void {
+  playInteraction(kind: "pet" | "rest" | "celebrate"): void {
     if (!this.running || this.dragging) return;
     const keywords: Record<string, string[]> = {
       pet: ["poke", "hug", "kiss", "peck", "hi", "clap"],
-      focus: ["work", "read", "desk", "book"],
       rest: ["sleep", "doze", "quilt", "cuddle"],
       celebrate: ["cheer", "rose", "sugar", "giverose"],
     };
@@ -99,7 +98,7 @@ export class AnimationScheduler {
       this.interactionTimer = null;
       if (this.running && !this.dragging) this.restoreIdle();
       this.scheduleNext();
-    }, kind === "focus" || kind === "rest" ? 5000 : 2600);
+    }, kind === "rest" ? 5000 : 2600);
   }
 
   async setCharacter(character: CharacterKey): Promise<void> {

@@ -12,12 +12,10 @@ import {
   UPDATE_DOWNLOAD_TIMEOUT_MS,
 } from "./core/updater";
 import { loadConfig, saveConfig, REMINDER_TEXT_MAX } from "./core/config";
-import { loadProductivity, saveProductivity, createTask, focusDuration, type ProductivityData } from "./core/productivity";
 import {
   emitConfigChanged,
   emitAssetsChanged,
   onAssetsChanged,
-  emitSpeak,
   onConfigChanged,
 } from "./core/bus";
 import {
@@ -52,6 +50,7 @@ import type {
 } from "./types";
 
 type FilterKey = "all" | AssetCategory;
+type AssetPickerKind = "avatar" | "single";
 
 /** 频率单位 → 毫秒倍率 */
 const UNIT_MS: Record<IntervalUnit, number> = {
@@ -119,13 +118,12 @@ const BASE_HINT =
   "支持 jpg / png / webp / gif / svg，仅保存在本机；上传会归入当前所选类型（“全部”时默认「待机」）。";
 
 let config: AppConfig;
-let productivity: ProductivityData = { tasks: [], focusSessions: [] };
-let focusTimer: number | null = null;
-let focusEndsAt = 0;
 let assetFilter: FilterKey = "all";
 let managing = false; // 素材库「管理」模式：开启时才显示删除按钮 + 支持多选批量删除
 const selectedIds = new Set<string>(); // 管理模式下已勾选待删的素材 id（仅当前视图内有效）
 let statusTimer: number | null = null;
+let activeAssetPicker: AssetPickerKind | null = null;
+let assetPickerTrigger: HTMLButtonElement | null = null;
 
 async function main(): Promise<void> {
   document.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -136,7 +134,6 @@ async function main(): Promise<void> {
   });
 
   config = await loadConfig();
-  productivity = await loadProductivity();
   setHiddenBuiltins(config.hiddenBuiltins);
 
   setupWindowControls();
@@ -144,29 +141,19 @@ async function main(): Promise<void> {
   setStatic();
   bindActiveCharacter();
   bindAppearance();
+  bindAssetPickers();
   bindDesktopOptions();
   bindBehavior();
   bindAutostart();
+  bindDevtools();
   bindUpdate();
   bindReminders();
   bindAssetControls();
   bindReset();
-  bindProductivity();
   applyTheme();
-  await win.listen("oneno-open-productivity", () => {
-    const button = document.querySelector<HTMLButtonElement>('[data-panel="productivity"]');
-    button?.click();
-  });
   await onConfigChanged((next) => {
     config = next;
     syncControls();
-    if (config.focus.running && !config.focus.paused) {
-      focusEndsAt = config.focus.endsAt ?? (Date.now() + focusDuration(config.focus));
-      if (focusTimer === null) startFocusTimer();
-    } else if (!config.focus.running) {
-      stopFocusTimer();
-    }
-    renderFocusClock();
   });
 
   syncControls();
@@ -176,13 +163,13 @@ async function main(): Promise<void> {
   await renderAvatarPicker();
   await renderSinglePicker();
   await renderGrid();
-  renderProductivity();
 
   // 素材若从别处变更也刷新网格 / 头像选择 / 单一动作选择
   await onAssetsChanged(async () => {
     await renderGrid();
     await renderAvatarPicker();
     await renderSinglePicker();
+    if (activeAssetPicker) await renderAssetPickerOptions();
   });
 
   // 自动检查更新：完全静默 —— 不占界面、失败不打扰，只有真发现新版本才把卡片切到「可升级」。
@@ -333,41 +320,20 @@ async function refreshOverview(): Promise<void> {
   setText("ov-opacity", `${Math.round(config.petOpacity * 100)}%`);
 }
 
-/** 渲染头像选择：列出当前人物素材库缩略图，高亮已选，点击即设为头像 */
+/** 更新头像预览，完整素材列表在弹框中浏览 */
 async function renderAvatarPicker(): Promise<void> {
-  const picker = byId("avatar-picker");
   const c = config.activeCharacter;
   const items = await listAllForCharacter(c);
   const selectedId = config.avatarIds[c];
-  picker.innerHTML = "";
-  if (items.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "avatar-empty";
-    empty.textContent = "该人物暂无素材";
-    picker.appendChild(empty);
-    return;
-  }
-  for (const item of items) {
-    const opt = document.createElement("button");
-    opt.type = "button";
-    opt.className = "avatar-opt";
-    opt.dataset.id = item.id;
-    opt.title = item.label ?? categoryLabel(item.category);
-    opt.setAttribute("role", "radio");
-    const selected = item.id === selectedId;
-    opt.classList.toggle("is-selected", selected);
-    opt.setAttribute("aria-checked", selected ? "true" : "false");
-
-    const img = document.createElement("img");
-    img.src = item.src;
-    img.alt = item.label ?? "";
-    img.draggable = false;
-    img.loading = "lazy";
-    opt.appendChild(img);
-
-    opt.addEventListener("click", () => void selectAvatar(item.id));
-    picker.appendChild(opt);
-  }
+  const selected = items.find((item) => item.id === selectedId);
+  const img = byId<HTMLImageElement>("avatar-preview-img");
+  img.src = selected?.src ?? (await getAvatarSrc(c, null));
+  img.alt = selected?.label ?? "当前头像";
+  const trigger = byId<HTMLButtonElement>("btn-open-avatar-picker");
+  trigger.title = selected
+    ? selected.label ?? categoryLabel(selected.category)
+    : "默认头像";
+  trigger.disabled = items.length === 0;
 }
 
 /** 选定当前人物头像并即时生效（右键菜单 / 总览随之更新） */
@@ -375,16 +341,107 @@ async function selectAvatar(id: string): Promise<void> {
   const c = config.activeCharacter;
   if (config.avatarIds[c] === id) return;
   config.avatarIds[c] = id;
-  // 仅切换高亮，避免整列重绘导致闪烁
-  byId("avatar-picker")
-    .querySelectorAll<HTMLButtonElement>(".avatar-opt")
-    .forEach((b) => {
-      const on = b.dataset.id === id;
-      b.classList.toggle("is-selected", on);
-      b.setAttribute("aria-checked", on ? "true" : "false");
-    });
   await persist();
   await refreshOverview();
+  await renderAvatarPicker();
+}
+
+/** 绑定头像与动作素材弹框 */
+function bindAssetPickers(): void {
+  byId<HTMLButtonElement>("btn-open-avatar-picker").addEventListener("click", (e) =>
+    void openAssetPicker("avatar", e.currentTarget as HTMLButtonElement),
+  );
+  byId<HTMLButtonElement>("btn-open-single-picker").addEventListener("click", (e) =>
+    void openAssetPicker("single", e.currentTarget as HTMLButtonElement),
+  );
+
+  const modal = byId("asset-picker-modal");
+  byId<HTMLButtonElement>("btn-close-asset-picker").addEventListener("click", closeAssetPicker);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeAssetPicker();
+  });
+  byId("asset-picker-grid").addEventListener("click", async (e) => {
+    const option = (e.target as HTMLElement).closest<HTMLButtonElement>(".avatar-opt");
+    if (!option?.dataset.id || !activeAssetPicker) return;
+    if (activeAssetPicker === "avatar") await selectAvatar(option.dataset.id);
+    else await selectSingleAction(option.dataset.id);
+    closeAssetPicker();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && activeAssetPicker) closeAssetPicker();
+  });
+}
+
+/** 打开素材弹框并记录触发按钮，关闭时将焦点还给原入口 */
+async function openAssetPicker(
+  kind: AssetPickerKind,
+  trigger: HTMLButtonElement,
+): Promise<void> {
+  activeAssetPicker = kind;
+  assetPickerTrigger = trigger;
+  setText("asset-picker-title", kind === "avatar" ? "选择头像" : "选择动作");
+  byId("asset-picker-modal").hidden = false;
+  await renderAssetPickerOptions();
+  const selected = byId("asset-picker-grid").querySelector<HTMLButtonElement>(
+    ".avatar-opt.is-selected",
+  );
+  (selected ?? byId<HTMLButtonElement>("btn-close-asset-picker")).focus();
+}
+
+/** 渲染弹框素材列表，动作选择只显示待机素材 */
+async function renderAssetPickerOptions(): Promise<void> {
+  if (!activeAssetPicker) return;
+  const grid = byId("asset-picker-grid");
+  const character = config.activeCharacter;
+  const items = await listAllForCharacter(character);
+  const options =
+    activeAssetPicker === "single"
+      ? items.filter((item) => item.category !== "drag")
+      : items;
+  const configuredId =
+    activeAssetPicker === "avatar"
+      ? config.avatarIds[character]
+      : config.singleActionIds[character];
+  const selectedId =
+    activeAssetPicker === "single" && !options.some((item) => item.id === configuredId)
+      ? options[0]?.id
+      : configuredId;
+
+  grid.innerHTML = "";
+  if (options.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "avatar-empty";
+    empty.textContent = "该人物暂无可选素材";
+    grid.appendChild(empty);
+    return;
+  }
+  for (const item of options) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "avatar-opt";
+    option.dataset.id = item.id;
+    option.title = item.label ?? categoryLabel(item.category);
+    option.setAttribute("role", "radio");
+    const selected = item.id === selectedId;
+    option.classList.toggle("is-selected", selected);
+    option.setAttribute("aria-checked", selected ? "true" : "false");
+
+    const img = document.createElement("img");
+    img.src = item.src;
+    img.alt = item.label ?? "";
+    img.draggable = false;
+    img.loading = "lazy";
+    option.appendChild(img);
+    grid.appendChild(option);
+  }
+}
+
+/** 关闭素材弹框并将键盘焦点还给打开弹框的按钮 */
+function closeAssetPicker(): void {
+  byId("asset-picker-modal").hidden = true;
+  activeAssetPicker = null;
+  assetPickerTrigger?.focus();
+  assetPickerTrigger = null;
 }
 
 // ── 用配置回填全部控件（初始化 & 恢复默认时复用） ──
@@ -415,6 +472,11 @@ function syncControls(): void {
   ) as HTMLInputElement | null;
   if (autostart) autostart.checked = config.autostart;
 
+  const devtools = document.getElementById(
+    "opt-allow-devtools",
+  ) as HTMLInputElement | null;
+  if (devtools) devtools.checked = config.allowDevTools;
+
   const autoUpdate = document.getElementById(
     "opt-auto-update",
   ) as HTMLInputElement | null;
@@ -424,6 +486,10 @@ function syncControls(): void {
   if (locked) locked.checked = config.desktop.locked;
   const clickThrough = document.getElementById("opt-click-through") as HTMLInputElement | null;
   if (clickThrough) clickThrough.checked = config.desktop.clickThrough;
+  document.querySelectorAll<HTMLInputElement>("[data-menu-item]").forEach((input) => {
+    const item = input.dataset.menuItem as keyof AppConfig["rightClickMenu"] | undefined;
+    if (item) input.checked = config.rightClickMenu[item];
+  });
   document.querySelectorAll<HTMLButtonElement>("#theme-mode .seg-btn").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.theme === config.theme);
   });
@@ -472,6 +538,14 @@ function bindDesktopOptions(): void {
     applyTheme();
     syncControls();
     void persist();
+  });
+  document.querySelectorAll<HTMLInputElement>("[data-menu-item]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const item = input.dataset.menuItem as keyof AppConfig["rightClickMenu"] | undefined;
+      if (!item) return;
+      config.rightClickMenu[item] = input.checked;
+      void persist();
+    });
   });
 }
 
@@ -590,62 +664,32 @@ function applyBehaviorMode(mode: BehaviorMode): void {
   byId("freq-row").classList.toggle("is-collapsed", mode === "single");
 }
 
-/** 渲染「单一动作」造型选择：列出当前人物的待机造型（不含拖拽），高亮已选 */
+/** 更新「单一动作」预览；可选素材仅限当前人物的待机造型 */
 async function renderSinglePicker(): Promise<void> {
-  const picker = byId("single-picker");
   const c = config.activeCharacter;
   const items = (await listAllForCharacter(c)).filter(
     (it) => it.category !== "drag",
   );
-  picker.innerHTML = "";
-  if (items.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "avatar-empty";
-    empty.textContent = "该人物暂无可选造型";
-    picker.appendChild(empty);
-    return;
-  }
   // 选定失效（null 或指向已删 / 已隐藏素材）时，回退高亮第一个可选造型
   const selectedId = config.singleActionIds[c];
-  const effectiveId = items.some((it) => it.id === selectedId)
-    ? selectedId
-    : items[0].id;
-  for (const item of items) {
-    const opt = document.createElement("button");
-    opt.type = "button";
-    opt.className = "avatar-opt";
-    opt.dataset.id = item.id;
-    opt.title = item.label ?? categoryLabel(item.category);
-    opt.setAttribute("role", "radio");
-    const selected = item.id === effectiveId;
-    opt.classList.toggle("is-selected", selected);
-    opt.setAttribute("aria-checked", selected ? "true" : "false");
-
-    const img = document.createElement("img");
-    img.src = item.src;
-    img.alt = item.label ?? "";
-    img.draggable = false;
-    img.loading = "lazy";
-    opt.appendChild(img);
-
-    opt.addEventListener("click", () => void selectSingleAction(item.id));
-    picker.appendChild(opt);
-  }
+  const selected = items.find((it) => it.id === selectedId) ?? items[0];
+  const img = byId<HTMLImageElement>("single-preview-img");
+  img.src = selected?.src ?? "";
+  img.alt = selected?.label ?? "当前动作";
+  const trigger = byId<HTMLButtonElement>("btn-open-single-picker");
+  trigger.title = selected
+    ? selected.label ?? categoryLabel(selected.category)
+    : "暂无可选动作";
+  trigger.disabled = items.length === 0;
 }
 
-/** 选定「单一动作」造型并即时生效（仅切换高亮，避免整列重绘闪烁） */
+/** 选定「单一动作」造型并即时生效 */
 async function selectSingleAction(id: string): Promise<void> {
   const c = config.activeCharacter;
   if (config.singleActionIds[c] === id) return;
   config.singleActionIds[c] = id;
-  byId("single-picker")
-    .querySelectorAll<HTMLButtonElement>(".avatar-opt")
-    .forEach((b) => {
-      const on = b.dataset.id === id;
-      b.classList.toggle("is-selected", on);
-      b.setAttribute("aria-checked", on ? "true" : "false");
-    });
   await persist();
+  await renderSinglePicker();
 }
 
 // ── 软件：开机自动运行（Windows 注册表 Run 项，后端原生实现）──
@@ -668,6 +712,42 @@ function bindAutostart(): void {
     } finally {
       toggle.disabled = false;
     }
+  });
+}
+
+/** 让设置页开关控制所有窗口的 F12 开发者工具 */
+function bindDevtools(): void {
+  const toggle = document.getElementById(
+    "opt-allow-devtools",
+  ) as HTMLInputElement | null;
+  if (!toggle) return;
+  toggle.addEventListener("change", async () => {
+    const enabled = toggle.checked;
+    const previous = config.allowDevTools;
+    const revision = config.revision;
+    toggle.disabled = true;
+    try {
+      await invoke("set_devtools_allowed", { enabled });
+      config.allowDevTools = enabled;
+      config.revision += 1;
+      await saveConfig(config);
+    } catch (error) {
+      config.allowDevTools = previous;
+      config.revision = revision;
+      toggle.checked = previous;
+      // 保存失败时还原原生权限，避免界面状态与实际行为不一致。
+      await invoke("set_devtools_allowed", { enabled: previous }).catch((rollbackError) => {
+        console.error("还原开发者工具权限失败:", rollbackError);
+      });
+      flashSaved(`设置失败：${String(error)}`, false);
+      return;
+    } finally {
+      toggle.disabled = false;
+    }
+    await emitConfigChanged(config).catch((error) => {
+      console.error("广播开发者工具配置失败:", error);
+    });
+    flashSaved();
   });
 }
 
@@ -771,7 +851,6 @@ async function setVersion(): Promise<void> {
   } catch (e) {
     console.error("getVersion 失败:", e);
   }
-  setText("about-version", version);
   setText("upd-current", `v${version}`);
 }
 
@@ -1485,183 +1564,6 @@ function applyTheme(): void {
   if (config.theme === "dark") root.dataset.theme = "dark";
   else if (config.theme === "light") root.dataset.theme = "light";
   else root.dataset.theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-function renderProductivity(): void {
-  const list = byId("task-list");
-  list.innerHTML = "";
-  const visible = productivity.tasks.filter((task) => !task.completed || task.completedAt && Date.now() - task.completedAt < 86_400_000);
-  setText("task-count", `${visible.filter((task) => !task.completed).length} 项未完成`);
-  if (visible.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "asset-hint";
-    empty.textContent = "今天还没有待办，先写下一件小事吧。";
-    list.appendChild(empty);
-    return;
-  }
-  visible.forEach((task) => {
-    const row = document.createElement("div");
-    row.className = `task-item${task.completed ? " is-done" : ""}`;
-    const check = document.createElement("input");
-    check.type = "checkbox";
-    check.checked = task.completed;
-    check.addEventListener("change", () => void toggleTask(task.id));
-    const title = document.createElement("span");
-    title.className = "task-title";
-    title.textContent = task.title;
-    title.title = task.note || task.title;
-    const focus = document.createElement("button");
-    focus.className = "btn btn-ghost";
-    focus.type = "button";
-    focus.textContent = "专注";
-    focus.addEventListener("click", () => void startFocus(task.id));
-    const del = document.createElement("button");
-    del.className = "task-delete";
-    del.type = "button";
-    del.textContent = "×";
-    del.title = "删除待办";
-    del.addEventListener("click", () => void deleteTask(task.id));
-    row.append(check, title, focus, del);
-    list.appendChild(row);
-  });
-}
-
-async function persistProductivity(): Promise<void> {
-  try {
-    await saveProductivity(productivity);
-    renderProductivity();
-  } catch (error) {
-    flashSaved("待办保存失败，请重试", false);
-    console.error("待办保存失败:", error);
-  }
-}
-
-function bindProductivity(): void {
-  byId<HTMLInputElement>("task-title").addEventListener("keydown", (event) => {
-    if (event.key === "Enter") void addTask();
-  });
-  byId("task-add").addEventListener("click", () => void addTask());
-  byId("focus-start").addEventListener("click", () => void startFocus(config.focus.taskId));
-  byId("focus-pause").addEventListener("click", () => toggleFocusPause());
-  byId("focus-reset").addEventListener("click", () => void stopFocus());
-  ["focus-minutes", "break-minutes", "long-break-minutes"].forEach((id) => {
-    byId<HTMLInputElement>(id).addEventListener("change", () => {
-      config.focus.focusMinutes = clampNum(Number(byId<HTMLInputElement>("focus-minutes").value), 1, 120);
-      config.focus.shortBreakMinutes = clampNum(Number(byId<HTMLInputElement>("break-minutes").value), 1, 60);
-      config.focus.longBreakMinutes = clampNum(Number(byId<HTMLInputElement>("long-break-minutes").value), 1, 120);
-      void persist();
-    });
-  });
-  byId<HTMLInputElement>("focus-minutes").value = String(config.focus.focusMinutes);
-  byId<HTMLInputElement>("break-minutes").value = String(config.focus.shortBreakMinutes);
-  byId<HTMLInputElement>("long-break-minutes").value = String(config.focus.longBreakMinutes);
-  renderFocusClock();
-}
-
-async function addTask(): Promise<void> {
-  const input = byId<HTMLInputElement>("task-title");
-  const title = input.value.trim();
-  if (!title) return;
-  productivity.tasks.unshift(createTask(title));
-  input.value = "";
-  await persistProductivity();
-}
-
-async function toggleTask(id: string): Promise<void> {
-  const task = productivity.tasks.find((item) => item.id === id);
-  if (!task) return;
-  task.completed = !task.completed;
-  task.completedAt = task.completed ? Date.now() : null;
-  await persistProductivity();
-}
-
-async function deleteTask(id: string): Promise<void> {
-  productivity.tasks = productivity.tasks.filter((task) => task.id !== id);
-  if (config.focus.taskId === id) config.focus.taskId = null;
-  await persistProductivity();
-}
-
-async function startFocus(taskId: string | null): Promise<void> {
-  config.appMode = "focus";
-  config.focus.taskId = taskId;
-  config.focus.running = true;
-  config.focus.paused = false;
-  config.focus.phase = "focus";
-  config.focus.endsAt = Date.now() + focusDuration(config.focus);
-  focusEndsAt = config.focus.endsAt;
-  await persist();
-  startFocusTimer();
-}
-
-function toggleFocusPause(): void {
-  if (!config.focus.running) return;
-  config.focus.paused = !config.focus.paused;
-  if (config.focus.paused) stopFocusTimer();
-  else {
-    config.focus.endsAt = Date.now() + remainingFocusMs();
-    focusEndsAt = config.focus.endsAt;
-    startFocusTimer();
-  }
-  void persist();
-  renderFocusClock();
-}
-
-async function stopFocus(): Promise<void> {
-  stopFocusTimer();
-  config.focus.running = false;
-  config.focus.paused = false;
-  config.focus.endsAt = null;
-  config.appMode = "companion";
-  await persist();
-  renderFocusClock();
-}
-
-function startFocusTimer(): void {
-  stopFocusTimer();
-  focusTimer = window.setInterval(() => {
-    if (!config.focus.running || config.focus.paused) return;
-    if (Date.now() >= focusEndsAt) {
-      void advanceFocusPhase();
-      return;
-    }
-    renderFocusClock();
-  }, 1000);
-  renderFocusClock();
-}
-
-function stopFocusTimer(): void {
-  if (focusTimer !== null) window.clearInterval(focusTimer);
-  focusTimer = null;
-}
-
-async function advanceFocusPhase(): Promise<void> {
-  const finishedPhase = config.focus.phase;
-  if (config.focus.phase === "focus") {
-    config.focus.round += 1;
-    config.focus.phase = config.focus.round % config.focus.roundsBeforeLongBreak === 0 ? "longBreak" : "shortBreak";
-  } else config.focus.phase = "focus";
-  config.focus.running = false;
-  config.focus.endsAt = null;
-  stopFocusTimer();
-  await persist();
-  const message = finishedPhase === "focus"
-    ? "专注完成啦，辛苦了！起来活动一下吧～"
-    : finishedPhase === "longBreak"
-      ? "长休息结束，准备好开始下一轮了吗？"
-      : "短休息结束，准备继续专注吧～";
-  void emitSpeak({ text: message, durationMs: 3600, source: finishedPhase === "focus" ? "celebrate" : "interaction" });
-  renderFocusClock();
-}
-
-function remainingFocusMs(): number {
-  return Math.max(0, focusEndsAt - Date.now());
-}
-
-function renderFocusClock(): void {
-  const ms = config.focus.running && !config.focus.paused ? remainingFocusMs() : focusDuration(config.focus);
-  const total = Math.ceil(ms / 1000);
-  setText("focus-time", `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`);
-  setText("focus-phase", config.focus.paused ? "已暂停" : config.focus.running ? (config.focus.phase === "focus" ? "专注中" : "休息中") : "准备开始");
 }
 
 main().catch((e) => console.error("settings 初始化失败:", e));

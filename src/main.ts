@@ -199,8 +199,7 @@ async function main(): Promise<void> {
       singleActionId: config.singleActionIds[config.activeCharacter],
     });
     if (modeChanged) {
-      if (config.appMode === "focus") scheduler.playInteraction("focus");
-      else if (config.appMode === "doNotDisturb") scheduler.playInteraction("rest");
+      if (config.appMode === "doNotDisturb") scheduler.playInteraction("rest");
     }
     if (opacityChanged) applyOpacity(root, config.petOpacity);
     if (sizeChanged) {
@@ -238,7 +237,7 @@ async function main(): Promise<void> {
 
   // 定时提醒：久坐 / 喝水 / 下班。弹窗走 showSpeech，未弹成功（桌宠隐藏 / 手动会话框未关）则下个 tick 重试
   reminders = createReminderScheduler((payload) => {
-    if (config.appMode === "doNotDisturb" || config.appMode === "focus") return Promise.resolve(false);
+    if (config.appMode === "doNotDisturb") return Promise.resolve(false);
     return showSpeech(payload);
   });
   reminders.setConfig(config);
@@ -706,7 +705,6 @@ const CHATTER_PHRASES = [
   "我一直在这儿陪着你呀。",
   "要不要伸个懒腰，动一动？",
   "累了就歇一会儿，我等你。",
-  "专注的你，超棒的！",
   "记得喝口水，休息一下下～",
   "嘿，我来陪你发会儿呆～",
   "今天有没有遇到一点点开心的事？",
